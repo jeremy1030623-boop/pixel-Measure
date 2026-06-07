@@ -21,6 +21,9 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -343,243 +346,144 @@ fun CameraViewComponent(
                 }
             }
 
-            // 4. Live Floating Header HUD Info Panels
+            // 4. Live Floating Header HUD Info Panels (Simplified)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .align(Alignment.TopCenter)
-                    .padding(16.dp)
-                    .padding(top = 28.dp)
+                    .padding(top = 40.dp)
             ) {
-                // Top control status drawer
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.Top
                 ) {
-                    // Height parameter capsule button
-                    Card(
-                        onClick = { showHeightDialog = true },
-                        colors = CardDefaults.cardColors(containerColor = Color(0xB30B0F19)),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.height(44.dp)
+                    // Mode Badge
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clickable { viewModel.setCameraMeasureSubMode(if (subMode == 0) 1 else 0) }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
-                            Icon(Icons.Default.Height, contentDescription = "持機高度", tint = MeasureYellow, modifier = Modifier.size(18.dp))
+                            Icon(
+                                if (subMode == 0) Icons.Default.CameraAlt else Icons.Default.Height,
+                                contentDescription = null,
+                                tint = PrecisionCyan,
+                                modifier = Modifier.size(14.dp)
+                            )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                "高度: ${cameraHeight.toInt()}cm",
-                                style = MaterialTheme.typography.bodySmall,
+                                text = if (subMode == 0) "水平測距" else "垂直測高",
+                                style = MaterialTheme.typography.labelSmall,
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                     }
 
-                    // Floating Saved History indicator
-                    IconButton(
-                        onClick = onShowHistoryClick,
-                        modifier = Modifier
-                            .background(Color(0xB30B0F19), RoundedCornerShape(12.dp))
-                    ) {
-                        Icon(Icons.Default.History, contentDescription = "歷史記錄", tint = PrecisionCyan)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Mode select toggle: Ground projective vs Alt Height setup
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xCC151C2C)),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    TabRow(
-                        selectedTabIndex = subMode,
-                        containerColor = Color.Transparent,
-                        contentColor = Color.White,
-                        indicator = {},
-                        divider = {}
-                    ) {
-                        Tab(
-                            selected = subMode == 0,
-                            onClick = { viewModel.setCameraMeasureSubMode(0) },
-                            text = { Text("水平地面投影測量", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
-                            selectedContentColor = MeasureYellow,
-                            unselectedContentColor = CadetBlue
+                    // Large Live Value
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = viewModel.getLiveDistanceText(),
+                            style = MaterialTheme.typography.displaySmall,
+                            color = MeasureYellow,
+                            fontWeight = FontWeight.Black
                         )
-                        Tab(
-                            selected = subMode == 1,
-                            onClick = { viewModel.setCameraMeasureSubMode(1) },
-                            text = { Text("垂直高度測量儀", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
-                            selectedContentColor = MeasureYellow,
-                            unselectedContentColor = CadetBlue
+                        Text(
+                            text = if (selectedUnit == "m") "公尺 (m)" else "公分 (cm)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = CadetBlue
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // ARCore Connection and Active Status HUD Badge
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = when (arCoreState) {
-                            "SUPPORTED_INSTALLED" -> Color(0xE11E1B4B) // Dark Indigo for active high precision ARCore
-                            else -> Color(0xE10B0F19) // Safe slate
-                        }
-                    ),
-                    shape = RoundedCornerShape(14.dp)
+                // Minimal AR Status Dot
+                Row(
+                    modifier = Modifier.padding(start = 24.dp, top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            // Status tracking dot
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .background(
-                                        color = when (arCoreState) {
-                                            "SUPPORTED_INSTALLED" -> LevelGreen
-                                            "APK_NOT_INSTALLED" -> MeasureYellow
-                                            else -> LevelGreen // Highlight simulated AR Core layer as alive and calibrating
-                                        },
-                                        shape = CircleShape
-                                    )
+                            .size(6.dp)
+                            .background(
+                                color = if (arCoreState == "SUPPORTED_INSTALLED") LevelGreen else MeasureYellow.copy(alpha = 0.7f),
+                                shape = CircleShape
                             )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "3D ARCore 實境特徵點追蹤",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = CadetBlue,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                                Text(
-                                    text = when (arCoreState) {
-                                        "SUPPORTED_INSTALLED" -> "高精度 ARCore 空間重塑運算中 (45FPS+)"
-                                        "APK_NOT_INSTALLED" -> "未檢測到 AR 部件．高精度陀螺儀模擬器已補正"
-                                        else -> "AR 空間平面映射已綁接・支援 3D 高擬真校準"
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White,
-                                    fontSize = 10.sp
-                                )
-                            }
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .background(if (arCoreActive) Color(0x3334D399) else Color(0x22FFFFFF), RoundedCornerShape(8.dp))
-                                .clickable { viewModel.setArCoreActive(!arCoreActive) }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = if (arCoreActive) "AR 鎖定" else "重校解鎖",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (arCoreActive) LevelGreen else Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp
-                            )
-                        }
-                    }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (arCoreState == "SUPPORTED_INSTALLED") "AR 精準追蹤" else "感測器模擬模式",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 10.sp
+                    )
                 }
             }
 
-            // 5. Floating Bottom Controller Hud Panel
-            Card(
+            // 5. Floating Bottom Controller Hud Panel (Simplified)
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .padding(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xE60B0F19)),
-                shape = RoundedCornerShape(24.dp)
+                    .fillMaxSize()
+                    .padding(bottom = 50.dp),
+                contentAlignment = Alignment.BottomCenter
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Live calculated value display text
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    // Settings/Height Setup
+                    Surface(
+                        onClick = { showHeightDialog = true },
+                        color = Color.Black.copy(alpha = 0.6f),
+                        shape = CircleShape,
+                        modifier = Modifier.size(54.dp)
                     ) {
-                        Column {
-                            Text(
-                                text = if (subMode == 0) {
-                                    if (activePoints.size >= 2) "累計多點總長度：" else "即時對焦測距："
-                                } else "所測高度值：",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = CadetBlue
-                            )
-                            Text(
-                                text = viewModel.getLiveDistanceText(),
-                                style = MaterialTheme.typography.displaySmall.copy(
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Black
-                                ),
-                                color = MeasureYellow
-                            )
-                        }
-
-                        // Save trigger button
-                        if (activePoints.isNotEmpty()) {
-                            Button(
-                                onClick = { viewModel.saveCurrentMeasurement(null) },
-                                colors = ButtonDefaults.buttonColors(containerColor = LevelGreen),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(Icons.Default.Save, contentDescription = "儲存", modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("儲存記錄")
-                            }
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Settings, null, tint = Color.White, modifier = Modifier.size(20.dp))
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Buttons toolbar layout
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
+                    // Main Action (+)
+                    Surface(
+                        onClick = { viewModel.addPoint() },
+                        color = MeasureYellow,
+                        shape = CircleShape,
+                        shadowElevation = 6.dp,
+                        modifier = Modifier.size(84.dp)
                     ) {
-                        // Clear active segment vectors
-                        OutlinedButton(
-                            onClick = { viewModel.clearActivePoints() },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                        ) {
-                            Icon(Icons.Default.Clear, contentDescription = "清除")
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("清除點位")
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Add, null, tint = Slate900, modifier = Modifier.size(36.dp))
                         }
+                    }
 
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        // Trigger click: capture current Pitch & Yaw target coordinate onto Point array
-                        Button(
-                            onClick = { viewModel.addPoint() },
-                            modifier = Modifier.weight(1.2f),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = MeasureYellow)
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = "加入點位", tint = Color.Black)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (subMode == 1 && lockedBaseDist == null) "設定底部" else "加入點位",
-                                color = Color.Black,
-                                fontWeight = FontWeight.ExtraBold
+                    // Right column: Clear/Save Action
+                    Surface(
+                        onClick = {
+                            if (activePoints.isNotEmpty()) {
+                                viewModel.saveCurrentMeasurement(null)
+                                viewModel.clearActivePoints()
+                            } else {
+                                onShowHistoryClick()
+                            }
+                        },
+                        color = if (activePoints.isNotEmpty()) LevelGreen else Color.Black.copy(alpha = 0.6f),
+                        shape = CircleShape,
+                        modifier = Modifier.size(54.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                if (activePoints.isNotEmpty()) Icons.Default.Save else Icons.Default.History,
+                                null,
+                                tint = if (activePoints.isNotEmpty()) Slate900 else Color.White,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }

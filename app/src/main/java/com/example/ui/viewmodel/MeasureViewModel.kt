@@ -21,18 +21,13 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.math.*
 
-data class Point3D(
-    val x: Double,
-    val y: Double,
-    val z: Double,
-    val pitch: Float,
-    val yaw: Float
-)
-
 class MeasureViewModel(application: Application) : AndroidViewModel(application), SensorEventListener {
 
     private val database = MeasureDatabase.getDatabase(application)
     private val repository = MeasureRepository(database.measureDao())
+    
+    // 測量引擎實作（預設使用三角運算）
+    private val measureEngine: com.example.logic.ARMeasureEngine = com.example.logic.TrigonometricMeasureEngine()
 
     // Saved database records
     val savedRecords: StateFlow<List<MeasureRecord>> = repository.allRecords
@@ -147,45 +142,27 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     fun addPoint() {
         val currentPitch = _pitch.value
         val currentYaw = _yaw.value
+        val camHeightM = cameraHeightCm.value / 100.0
         
         val point = if (_cameraMeasureSubMode.value == 0) {
-            // Ground project: z = 0, distance computed via pitch
-            val pitchRad = Math.toRadians(abs(currentPitch).toDouble().coerceAtLeast(1.0))
-            val d = (cameraHeightCm.value / 100.0) / tan(pitchRad)
-            val yawRad = Math.toRadians(currentYaw.toDouble())
-            Point3D(
-                x = d * sin(yawRad),
-                y = d * cos(yawRad),
-                z = 0.0,
-                pitch = currentPitch,
-                yaw = currentYaw
-            )
+            // Ground project
+            measureEngine.calculateGroundPoint(currentPitch, currentYaw, camHeightM)
         } else {
             // Height mode: base locking
             val baseDist = _lockedBaseDistance.value
             if (baseDist == null) {
-                // First click: Lock the base of the height-meter
-                val pitchRad = Math.toRadians(abs(currentPitch).toDouble().coerceAtLeast(1.0))
-                val d = (cameraHeightCm.value / 100.0) / tan(pitchRad)
-                _lockedBaseDistance.value = d
-                val yawRad = Math.toRadians(currentYaw.toDouble())
-                Point3D(
-                    x = d * sin(yawRad),
-                    y = d * cos(yawRad),
-                    z = 0.0, // bottom
-                    pitch = currentPitch,
-                    yaw = currentYaw
-                )
+                // First click: Lock the base
+                val groundPoint = measureEngine.calculateGroundPoint(currentPitch, currentYaw, camHeightM)
+                _lockedBaseDistance.value = sqrt(groundPoint.x.pow(2) + groundPoint.y.pow(2))
+                groundPoint
             } else {
                 // Second click: lock top altitude
-                val pitchRad = Math.toRadians(currentPitch.toDouble())
-                val d = baseDist
-                val zHeight = (cameraHeightCm.value / 100.0) + d * tan(pitchRad)
+                val zHeight = measureEngine.calculateVerticalHeight(baseDist, currentPitch, camHeightM)
                 val yawRad = Math.toRadians(currentYaw.toDouble())
                 Point3D(
-                    x = d * sin(yawRad),
-                    y = d * cos(yawRad),
-                    z = zHeight.coerceAtLeast(0.0), // top height
+                    x = baseDist * sin(yawRad),
+                    y = baseDist * cos(yawRad),
+                    z = zHeight,
                     pitch = currentPitch,
                     yaw = currentYaw
                 )
@@ -204,37 +181,30 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     fun getLiveDistanceText(): String {
         val currentPitch = _pitch.value
         val currentYaw = _yaw.value
+        val camHeightM = cameraHeightCm.value / 100.0
         
         if (_cameraMeasureSubMode.value == 0) {
             // Horizontal multi-point distance
+            val currentGroundPoint = measureEngine.calculateGroundPoint(currentPitch, currentYaw, camHeightM)
+            
             if (capturedPoints.isEmpty()) {
-                // Return distance from center target to camera vertical projected footpoint
-                val pitchRad = Math.toRadians(abs(currentPitch).toDouble().coerceAtLeast(1.0))
-                val d = (cameraHeightCm.value / 100.0) / tan(pitchRad)
+                // Distance to target point on ground
+                val d = sqrt(currentGroundPoint.x.pow(2) + currentGroundPoint.y.pow(2))
                 return formatLengthValue(d)
             } else {
-                // Return distance stretching from last clicked point to live target
+                // Distance from last point to live target
                 val lastPoint = capturedPoints.last()
-                val lastD = sqrt(lastPoint.x * lastPoint.x + lastPoint.y * lastPoint.y)
-                
-                val pitchRad = Math.toRadians(abs(currentPitch).toDouble().coerceAtLeast(1.0))
-                val currD = (cameraHeightCm.value / 100.0) / tan(pitchRad)
-                
-                val yawRadDiff = Math.toRadians((currentYaw - lastPoint.yaw).toDouble())
-                val liveDist = sqrt(lastD * lastD + currD * currD - 2 * lastD * currD * cos(yawRadDiff))
+                val liveDist = measureEngine.calculateDistance(lastPoint, currentGroundPoint)
                 return formatLengthValue(liveDist)
             }
         } else {
             // Altitude height meter
             val baseDist = _lockedBaseDistance.value
             if (baseDist == null) {
-                // Suggest looking at the base
                 return "請瞄準底部並點擊 +"
             } else {
-                // Height = H + d * tan(pitch)
-                val pitchRad = Math.toRadians(currentPitch.toDouble())
-                val zHeight = (cameraHeightCm.value / 100.0) + baseDist * tan(pitchRad)
-                return formatLengthValue(zHeight.coerceAtLeast(0.0))
+                val zHeight = measureEngine.calculateVerticalHeight(baseDist, currentPitch, camHeightM)
+                return formatLengthValue(zHeight)
             }
         }
     }
@@ -253,7 +223,7 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
                     for (i in 0 until capturedPoints.size - 1) {
                         val p1 = capturedPoints[i]
                         val p2 = capturedPoints[i + 1]
-                        accum += sqrt((p1.x - p2.x).pow(2) + (p1.y - p2.y).pow(2) + (p1.z - p2.z).pow(2))
+                        accum += measureEngine.calculateDistance(p1, p2)
                     }
                     measuredValue = accum
                 } else if (capturedPoints.size == 1) {
@@ -270,10 +240,9 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
                 } else if (capturedPoints.size == 1) {
                     // Just relative to locked ground base
                     val currentPitch = _pitch.value
-                    val pitchRad = Math.toRadians(currentPitch.toDouble())
+                    val camHeightM = cameraHeightCm.value / 100.0
                     val base = _lockedBaseDistance.value ?: 0.0
-                    val zHeight = (cameraHeightCm.value / 100.0) + base * tan(pitchRad)
-                    measuredValue = zHeight.coerceAtLeast(0.0)
+                    measuredValue = measureEngine.calculateVerticalHeight(base, currentPitch, camHeightM)
                 }
             }
 

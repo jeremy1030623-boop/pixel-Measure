@@ -1,0 +1,409 @@
+package com.example.ui.viewmodel
+
+import android.app.Application
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import androidx.compose.runtime.mutableStateListOf
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.data.db.MeasureDatabase
+import com.example.data.model.MeasureRecord
+import com.example.data.repository.MeasureRepository
+import com.google.ar.core.ArCoreApk
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlin.math.*
+
+data class Point3D(
+    val x: Double,
+    val y: Double,
+    val z: Double,
+    val pitch: Float,
+    val yaw: Float
+)
+
+class MeasureViewModel(application: Application) : AndroidViewModel(application), SensorEventListener {
+
+    private val database = MeasureDatabase.getDatabase(application)
+    private val repository = MeasureRepository(database.measureDao())
+
+    // Saved database records
+    val savedRecords: StateFlow<List<MeasureRecord>> = repository.allRecords
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    // App state flows
+    private val _currentMode = MutableStateFlow(0) // 0: 相機 AR 測量, 1: 螢幕直尺, 2: 泡泡水平儀
+    val currentMode: StateFlow<Int> = _currentMode.asStateFlow()
+
+    private val _selectedUnit = MutableStateFlow("cm") // "cm", "m", "in", "ft"
+    val selectedUnit: StateFlow<String> = _selectedUnit.asStateFlow()
+
+    private val _cameraHeightCm = MutableStateFlow(140f) // 預設持手機高度 140 公分
+    val cameraHeightCm: StateFlow<Float> = _cameraHeightCm.asStateFlow()
+
+    // 測量模式: 0 = 水平地面投影測量 (Ground Plane), 1 = 垂直高度測量 (Vertical Height Tool)
+    private val _cameraMeasureSubMode = MutableStateFlow(0)
+    val cameraMeasureSubMode: StateFlow<Int> = _cameraMeasureSubMode.asStateFlow()
+
+    // 垂直高度鎖定的底座距離
+    private val _lockedBaseDistance = MutableStateFlow<Double?>(null)
+    val lockedBaseDistance: StateFlow<Double?> = _lockedBaseDistance.asStateFlow()
+
+    // ARCore Engine states
+    private val _arCoreState = MutableStateFlow("UNKNOWN") // "CHECKING", "SUPPORTED_INSTALLED", "UNSUPPORTED", "APK_NOT_INSTALLED"
+    val arCoreState: StateFlow<String> = _arCoreState.asStateFlow()
+
+    private val _arCoreActive = MutableStateFlow(true) // Auto enable standard AR space positioning
+    val arCoreActive: StateFlow<Boolean> = _arCoreActive.asStateFlow()
+
+    fun checkArCoreSupport(context: Context) {
+        viewModelScope.launch {
+            try {
+                val availability = ArCoreApk.getInstance().checkAvailability(context)
+                if (availability.isTransient) {
+                    _arCoreState.value = "CHECKING"
+                } else if (availability.isSupported) {
+                    if (availability.name == "SUPPORTED_INSTALLED") {
+                        _arCoreState.value = "SUPPORTED_INSTALLED"
+                    } else {
+                        _arCoreState.value = "APK_NOT_INSTALLED"
+                    }
+                } else {
+                    _arCoreState.value = "UNSUPPORTED"
+                }
+            } catch (e: Exception) {
+                _arCoreState.value = "UNSUPPORTED"
+            }
+        }
+    }
+
+    fun setArCoreActive(active: Boolean) {
+        _arCoreActive.value = active
+    }
+
+    // Raw Sensor state
+    private val _pitch = MutableStateFlow(0f)  // degree (-90 is straight down, 0 is flat looking ahead)
+    val pitch: StateFlow<Float> = _pitch.asStateFlow()
+
+    private val _roll = MutableStateFlow(0f)   // degree (tilting left/right)
+    val roll: StateFlow<Float> = _roll.asStateFlow()
+
+    private val _yaw = MutableStateFlow(0f)     // azimuth heading (yaw angle)
+    val yaw: StateFlow<Float> = _yaw.asStateFlow()
+
+    // Current camera measurement points clicked
+    val capturedPoints = mutableStateListOf<Point3D>()
+
+    // Pocket Ruler Callipers (State in DP offset from center)
+    private val _rulerCaliperLeft = MutableStateFlow(-120.0f)
+    val rulerCaliperLeft: StateFlow<Float> = _rulerCaliperLeft.asStateFlow()
+
+    private val _rulerCaliperRight = MutableStateFlow(120.0f)
+    val rulerCaliperRight: StateFlow<Float> = _rulerCaliperRight.asStateFlow()
+
+    // Sensor support structure
+    private val sensorManager = application.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    private val accelerometerReading = FloatArray(3)
+    private val magnetometerReading = FloatArray(3)
+    private val rotationMatrix = FloatArray(9)
+    private val orientationAngles = FloatArray(3)
+    private var hasAccelerometer = false
+    private var hasMagnetometer = false
+
+    fun setMode(mode: Int) {
+        _currentMode.value = mode
+    }
+
+    fun setUnit(unit: String) {
+        _selectedUnit.value = unit
+    }
+
+    fun setCameraHeight(height: Float) {
+        _cameraHeightCm.value = height
+    }
+
+    fun setCameraMeasureSubMode(subMode: Int) {
+        _cameraMeasureSubMode.value = subMode
+        clearActivePoints()
+    }
+
+    fun updateRulerCalipers(left: Float, right: Float) {
+        _rulerCaliperLeft.value = left
+        _rulerCaliperRight.value = right
+    }
+
+    // Capture standard point
+    fun addPoint() {
+        val currentPitch = _pitch.value
+        val currentYaw = _yaw.value
+        
+        val point = if (_cameraMeasureSubMode.value == 0) {
+            // Ground project: z = 0, distance computed via pitch
+            val pitchRad = Math.toRadians(abs(currentPitch).toDouble().coerceAtLeast(1.0))
+            val d = (cameraHeightCm.value / 100.0) / tan(pitchRad)
+            val yawRad = Math.toRadians(currentYaw.toDouble())
+            Point3D(
+                x = d * sin(yawRad),
+                y = d * cos(yawRad),
+                z = 0.0,
+                pitch = currentPitch,
+                yaw = currentYaw
+            )
+        } else {
+            // Height mode: base locking
+            val baseDist = _lockedBaseDistance.value
+            if (baseDist == null) {
+                // First click: Lock the base of the height-meter
+                val pitchRad = Math.toRadians(abs(currentPitch).toDouble().coerceAtLeast(1.0))
+                val d = (cameraHeightCm.value / 100.0) / tan(pitchRad)
+                _lockedBaseDistance.value = d
+                val yawRad = Math.toRadians(currentYaw.toDouble())
+                Point3D(
+                    x = d * sin(yawRad),
+                    y = d * cos(yawRad),
+                    z = 0.0, // bottom
+                    pitch = currentPitch,
+                    yaw = currentYaw
+                )
+            } else {
+                // Second click: lock top altitude
+                val pitchRad = Math.toRadians(currentPitch.toDouble())
+                val d = baseDist
+                val zHeight = (cameraHeightCm.value / 100.0) + d * tan(pitchRad)
+                val yawRad = Math.toRadians(currentYaw.toDouble())
+                Point3D(
+                    x = d * sin(yawRad),
+                    y = d * cos(yawRad),
+                    z = zHeight.coerceAtLeast(0.0), // top height
+                    pitch = currentPitch,
+                    yaw = currentYaw
+                )
+            }
+        }
+        
+        capturedPoints.add(point)
+    }
+
+    fun clearActivePoints() {
+        capturedPoints.clear()
+        _lockedBaseDistance.value = null
+    }
+
+    // Realtime distance estimation to current crosshair
+    fun getLiveDistanceText(): String {
+        val currentPitch = _pitch.value
+        val currentYaw = _yaw.value
+        
+        if (_cameraMeasureSubMode.value == 0) {
+            // Horizontal multi-point distance
+            if (capturedPoints.isEmpty()) {
+                // Return distance from center target to camera vertical projected footpoint
+                val pitchRad = Math.toRadians(abs(currentPitch).toDouble().coerceAtLeast(1.0))
+                val d = (cameraHeightCm.value / 100.0) / tan(pitchRad)
+                return formatLengthValue(d)
+            } else {
+                // Return distance stretching from last clicked point to live target
+                val lastPoint = capturedPoints.last()
+                val lastD = sqrt(lastPoint.x * lastPoint.x + lastPoint.y * lastPoint.y)
+                
+                val pitchRad = Math.toRadians(abs(currentPitch).toDouble().coerceAtLeast(1.0))
+                val currD = (cameraHeightCm.value / 100.0) / tan(pitchRad)
+                
+                val yawRadDiff = Math.toRadians((currentYaw - lastPoint.yaw).toDouble())
+                val liveDist = sqrt(lastD * lastD + currD * currD - 2 * lastD * currD * cos(yawRadDiff))
+                return formatLengthValue(liveDist)
+            }
+        } else {
+            // Altitude height meter
+            val baseDist = _lockedBaseDistance.value
+            if (baseDist == null) {
+                // Suggest looking at the base
+                return "請瞄準底部並點擊 +"
+            } else {
+                // Height = H + d * tan(pitch)
+                val pitchRad = Math.toRadians(currentPitch.toDouble())
+                val zHeight = (cameraHeightCm.value / 100.0) + baseDist * tan(pitchRad)
+                return formatLengthValue(zHeight.coerceAtLeast(0.0))
+            }
+        }
+    }
+
+    fun saveCurrentMeasurement(customLabel: String? = null) {
+        viewModelScope.launch {
+            val label = customLabel ?: if (_cameraMeasureSubMode.value == 0) {
+                if (capturedPoints.size >= 2) "測量長度" else "地面距離"
+            } else "高度"
+            
+            var measuredValue = 0.0
+            if (_cameraMeasureSubMode.value == 0) {
+                if (capturedPoints.size >= 2) {
+                    // Sum distances up
+                    var accum = 0.0
+                    for (i in 0 until capturedPoints.size - 1) {
+                        val p1 = capturedPoints[i]
+                        val p2 = capturedPoints[i + 1]
+                        accum += sqrt((p1.x - p2.x).pow(2) + (p1.y - p2.y).pow(2) + (p1.z - p2.z).pow(2))
+                    }
+                    measuredValue = accum
+                } else if (capturedPoints.size == 1) {
+                    val p = capturedPoints[0]
+                    measuredValue = sqrt(p.x * p.x + p.y * p.y)
+                }
+            } else {
+                // Height mode
+                if (capturedPoints.size >= 2) {
+                    // Difference between bottom and top Z
+                    val bottomVal = capturedPoints.first().z
+                    val topVal = capturedPoints.last().z
+                    measuredValue = abs(topVal - bottomVal)
+                } else if (capturedPoints.size == 1) {
+                    // Just relative to locked ground base
+                    val currentPitch = _pitch.value
+                    val pitchRad = Math.toRadians(currentPitch.toDouble())
+                    val base = _lockedBaseDistance.value ?: 0.0
+                    val zHeight = (cameraHeightCm.value / 100.0) + base * tan(pitchRad)
+                    measuredValue = zHeight.coerceAtLeast(0.0)
+                }
+            }
+
+            if (measuredValue > 0.0) {
+                // Convert from base meters to CM
+                val centimeters = measuredValue * 100.0
+                repository.insert(
+                    MeasureRecord(
+                        title = label,
+                        value = convertCmToSelected(centimeters, _selectedUnit.value),
+                        unit = _selectedUnit.value,
+                        type = "CAM"
+                    )
+                )
+                clearActivePoints()
+            }
+        }
+    }
+
+    fun saveRulerMeasurement(title: String, cmVal: Double) {
+        viewModelScope.launch {
+            repository.insert(
+                MeasureRecord(
+                    title = title,
+                    value = convertCmToSelected(cmVal, _selectedUnit.value),
+                    unit = _selectedUnit.value,
+                    type = "RULER"
+                )
+            )
+        }
+    }
+
+    fun deleteRecord(id: Int) {
+        viewModelScope.launch {
+            repository.deleteById(id)
+        }
+    }
+
+    fun clearAllRecords() {
+        viewModelScope.launch {
+            repository.clearAll()
+        }
+    }
+
+    // Helper functions for unit conversion
+    fun convertCmToSelected(cm: Double, unit: String): Double {
+        return when (unit) {
+            "cm" -> cm
+            "m" -> cm / 100.0
+            "in" -> cm / 2.54
+            "ft" -> cm / 30.48
+            else -> cm
+        }
+    }
+
+    fun formatLengthValue(meters: Double): String {
+        val cm = meters * 100.0
+        val converted = convertCmToSelected(cm, _selectedUnit.value)
+        return String.format("%.1f %s", converted, _selectedUnit.value)
+    }
+
+    // Sensor Registration Lifecycle
+    fun startListening() {
+        val accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        if (accel != null) {
+            sensorManager.registerListener(this, accel, SensorManager.SENSOR_DELAY_UI)
+            hasAccelerometer = true
+        }
+        val magnet = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+        if (magnet != null) {
+            sensorManager.registerListener(this, magnet, SensorManager.SENSOR_DELAY_UI)
+            hasMagnetometer = true
+        }
+    }
+
+    fun stopListening() {
+        sensorManager.unregisterListener(this)
+    }
+
+    override fun onSensorChanged(event: SensorEvent) {
+        when (event.sensor.type) {
+            Sensor.TYPE_ACCELEROMETER -> {
+                System.arraycopy(event.values, 0, accelerometerReading, 0, accelerometerReading.size)
+            }
+            Sensor.TYPE_MAGNETIC_FIELD -> {
+                System.arraycopy(event.values, 0, magnetometerReading, 0, magnetometerReading.size)
+            }
+        }
+
+        // Standard orientation matrix solver
+        val success = SensorManager.getRotationMatrix(
+            rotationMatrix,
+            null,
+            accelerometerReading,
+            magnetometerReading
+        )
+
+        if (success) {
+            SensorManager.getOrientation(rotationMatrix, orientationAngles)
+            // azimuth (yaw)
+            var azimuth = Math.toDegrees(orientationAngles[0].toDouble()).toFloat()
+            if (azimuth < 0) azimuth += 360f // absolute heading
+            _yaw.value = azimuth
+
+            // pitch (around X axis)
+            _pitch.value = Math.toDegrees(orientationAngles[1].toDouble()).toFloat()
+            
+            // roll (around Y axis)
+            _roll.value = Math.toDegrees(orientationAngles[2].toDouble()).toFloat()
+        } else {
+            // Fallback: simple gravity calculation from accelerometer alone (if magnet is offline)
+            val ax = accelerometerReading[0]
+            val ay = accelerometerReading[1]
+            val az = accelerometerReading[2]
+            val norm = sqrt((ax * ax + ay * ay + az * az).toDouble())
+            if (norm > 0) {
+                val x = ax / norm
+                val y = ay / norm
+                val z = az / norm
+
+                // Pitch - vertical angle: pitch down points negative, up points positive
+                val computedPitch = -asin(y) * (180.0 / Math.PI)
+                _pitch.value = computedPitch.toFloat()
+
+                // Roll - side to side angle
+                val computedRoll = atan2(x, z) * (180.0 / Math.PI)
+                _roll.value = computedRoll.toFloat()
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+}

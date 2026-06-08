@@ -10,12 +10,16 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Height
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -28,9 +32,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -40,6 +45,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.animation.core.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MeasureViewModel
 import com.example.ui.viewmodel.Point3D
@@ -70,11 +78,101 @@ fun CameraViewComponent(
     
     val arCoreState by viewModel.arCoreState.collectAsState()
     val arCoreActive by viewModel.arCoreActive.collectAsState()
+    val arTrackingState by viewModel.arTrackingState.collectAsState()
     
     val activePoints = viewModel.capturedPoints
 
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+
+    // Infinite transitions for smooth breathing and radar scan ripples
+    val infiniteTransition = rememberInfiniteTransition(label = "RadarPulse")
+    val breatheScale by infiniteTransition.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "breatheScale"
+    )
+    val radarWaveRadius by infiniteTransition.animateFloat(
+        initialValue = 12f,
+        targetValue = 44f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "radarWaveRadius"
+    )
+    val radarWaveAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.7f,
+        targetValue = 0.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "radarWaveAlpha"
+    )
+
+    // Bouncy physical entry feedback for the most recently added point
+    val scaleAnimState = remember { Animatable(0f) }
+    LaunchedEffect(activePoints.size) {
+        if (activePoints.isNotEmpty()) {
+            scaleAnimState.snapTo(0.2f)
+            scaleAnimState.animateTo(
+                targetValue = 1.0f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+            )
+        }
+    }
+
     var showHeightDialog by remember { mutableStateOf(false) }
     var heightInputState by remember { mutableStateOf(cameraHeight.toInt().toString()) }
+
+    // Save states for AR Measurements
+    var showSaveMeasurementDialog by remember { mutableStateOf(false) }
+    var saveTitleTextState by remember { mutableStateOf("") }
+    var saveNotesTextState by remember { mutableStateOf("") }
+
+    // Active point label editing states
+    var editingPointIndex by remember { mutableStateOf<Int?>(null) }
+    var pointLabelInputState by remember { mutableStateOf("") }
+
+    // ARCore Lifecycle sync
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> viewModel.onResume()
+                Lifecycle.Event.ON_PAUSE -> viewModel.onPause()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    // ARCore Frame update loop
+    LaunchedEffect(arCoreState) {
+        if (arCoreState == "SUPPORTED_INSTALLED") {
+            while (true) {
+                val session = viewModel.arSession
+                if (session != null) {
+                    try {
+                        val frame = session.update()
+                        viewModel.updateArFrame(frame)
+                    } catch (e: Exception) {
+                        // Log or handle tracking failures
+                    }
+                }
+                kotlinx.coroutines.delay(33) // ~30fps update
+            }
+        }
+    }
 
     // Start listening to physical sensors
     DisposableEffect(Unit) {
@@ -201,7 +299,14 @@ fun CameraViewComponent(
                     val p1 = screenPoints[i]
                     val p2 = screenPoints[i + 1]
                     if (p1 != null && p2 != null) {
-                        // Solid connect line
+                        // Dark backing line to provide absolute high contrast in any lighting
+                        drawLine(
+                            color = Color(0x990F172A),
+                            start = p1,
+                            end = p2,
+                            strokeWidth = 12f
+                        )
+                        // Precise solid line
                         drawLine(
                             color = PrecisionCyan,
                             start = p1,
@@ -211,11 +316,47 @@ fun CameraViewComponent(
                         // Label segment length precisely on screen
                         val midpoint = Offset((p1.x + p2.x) / 2f, (p1.y + p2.y) / 2f)
                         val segmentLength = sqrt(
-                            (activePoints[i].x - activePoints[i+1].x).pow(2) +
-                            (activePoints[i].y - activePoints[i+1].y).pow(2) +
-                            (activePoints[i].z - activePoints[i+1].z).pow(2)
+                            (activePoints[i].x - activePoints[i+1].x).pow(2.0) +
+                            (activePoints[i].y - activePoints[i+1].y).pow(2.0) +
+                            (activePoints[i].z - activePoints[i+1].z).pow(2.0)
                         )
-                        // Optional background plaque for text could go here, drawn as simple circle
+                        val lengthStr = viewModel.formatLengthValue(segmentLength)
+
+                        // Draw a stylish small dark bubble plaque for the line distance value for maximum legibility
+                        val distPaint = android.text.TextPaint().apply {
+                            color = android.graphics.Color.WHITE
+                            textSize = 24f
+                            typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+                            isAntiAlias = true
+                        }
+                        val distTextWidth = distPaint.measureText(lengthStr)
+                        val distTextHeight = distPaint.textSize
+                        val pX = 10f
+                        val pY = 6f
+                        
+                        // Bubble container (Semi-transparent Slate 800)
+                        drawRoundRect(
+                            color = Color(0xEE1E293B),
+                            topLeft = Offset(midpoint.x - distTextWidth / 2f - pX, midpoint.y - distTextHeight / 2f - pY),
+                            size = Size(distTextWidth + pX * 2, distTextHeight + pY * 2),
+                            cornerRadius = CornerRadius(6f, 6f),
+                            style = androidx.compose.ui.graphics.drawscope.Fill
+                        )
+                        // Border edge
+                        drawRoundRect(
+                            color = PrecisionCyan.copy(alpha = 0.8f),
+                            topLeft = Offset(midpoint.x - distTextWidth / 2f - pX, midpoint.y - distTextHeight / 2f - pY),
+                            size = Size(distTextWidth + pX * 2, distTextHeight + pY * 2),
+                            cornerRadius = CornerRadius(6f, 6f),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
+                        )
+                        // Center draw text
+                        drawContext.canvas.nativeCanvas.drawText(
+                            lengthStr,
+                            midpoint.x - distTextWidth / 2f,
+                            midpoint.y + distTextHeight / 2f - 4f,
+                            distPaint
+                        )
                     }
                 }
 
@@ -223,6 +364,15 @@ fun CameraViewComponent(
                 if (activePoints.isNotEmpty() && subMode == 0) {
                     val lastProjected = screenPoints.last()
                     if (lastProjected != null) {
+                        // High-contrast back dashes
+                        drawLine(
+                            color = Color(0x990F172A),
+                            start = lastProjected,
+                            end = Offset(cx, cy),
+                            strokeWidth = 8f,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 15f), 0f)
+                        )
+                        // Foreground bright dashes
                         drawLine(
                             color = MeasureYellow,
                             start = lastProjected,
@@ -233,18 +383,103 @@ fun CameraViewComponent(
                     }
                 }
 
+                // Create native paint for custom AR text labels
+                val labelPaint = android.text.TextPaint().apply {
+                    color = android.graphics.Color.WHITE
+                    textSize = 28f
+                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                    isAntiAlias = true
+                }
+
                 // Draw solid pointer dots on projected coordinates
                 screenPoints.forEachIndexed { idx, offset ->
                     if (offset != null) {
+                        val isLast = (idx == activePoints.lastIndex)
+                        val baseColor = if (isLast) MeasureYellow else PrecisionCyan
+                        
+                        // Calculate scale for this point (entrance spring scale if it is the latest point)
+                        val currentScale = if (isLast && activePoints.isNotEmpty()) scaleAnimState.value else 1.0f
+                        
+                        // 1. Draw glowing/pulsing background halo
+                        if (isLast) {
+                            drawCircle(
+                                color = baseColor.copy(alpha = radarWaveAlpha),
+                                radius = radarWaveRadius * currentScale,
+                                center = offset
+                            )
+                        } else {
+                            // Breathe scale for existing points
+                            drawCircle(
+                                color = baseColor.copy(alpha = 0.25f),
+                                radius = 22f * breatheScale,
+                                center = offset
+                            )
+                        }
+
+                        // 2. Main Marker dot container (Slate 900 base circle)
                         drawCircle(
-                            color = Color(0xFF0F172A),
-                            radius = 18f,
+                            color = Color(0xCC0F172A), 
+                            radius = 18f * currentScale,
                             center = offset
                         )
+
+                        // Outer ring stroke for technical scope appearance
                         drawCircle(
-                            color = if (idx == activePoints.lastIndex) MeasureYellow else PrecisionCyan,
-                            radius = 12f,
+                            color = baseColor,
+                            radius = 18f * currentScale,
+                            center = offset,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
+                        )
+
+                        // Inner solid point focal dot
+                        drawCircle(
+                            color = baseColor,
+                            radius = 8f * currentScale,
                             center = offset
+                        )
+
+                        // 3. Render modern legibility plaque capsule with custom title label next to circle
+                        val point = activePoints[idx]
+                        val displayLabel = if (point.label.isNotBlank()) "${idx + 1}. ${point.label}" else "標註點 ${idx + 1}"
+                        
+                        val textWidth = labelPaint.measureText(displayLabel)
+                        val textHeight = labelPaint.textSize
+                        val paddingX = 14f
+                        val paddingY = 8f
+                        
+                        // Floating capsule background with absolute 100% lighting contrast
+                        val capsuleTopLeft = Offset(offset.x + 28f, offset.y - textHeight / 2f - paddingY)
+                        
+                        drawRoundRect(
+                            color = Color(0xDD0F172A), // Dark Midnight slate background
+                            topLeft = capsuleTopLeft,
+                            size = Size(textWidth + paddingX * 2, textHeight + paddingY * 2),
+                            cornerRadius = CornerRadius(10f, 10f)
+                        )
+                        
+                        // Colored sidebar accent color bar on capsule
+                        drawRoundRect(
+                            color = baseColor,
+                            topLeft = capsuleTopLeft,
+                            size = Size(5f, textHeight + paddingY * 2),
+                            cornerRadius = CornerRadius(2.5f, 2.5f)
+                        )
+
+                        // Outline contour border for perfect separation
+                        drawRoundRect(
+                            color = baseColor.copy(alpha = 0.4f),
+                            topLeft = capsuleTopLeft,
+                            size = Size(textWidth + paddingX * 2, textHeight + paddingY * 2),
+                            cornerRadius = CornerRadius(10f, 10f),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
+                        )
+
+                        // Render the crystal clear text above the capsule plaque
+                        drawContext.canvas.nativeCanvas.drawText(
+                            displayLabel,
+                            offset.x + 28f + paddingX + 2f,
+                            offset.y + textHeight / 2f - 4f,
+                            labelPaint
                         )
                     }
                 }
@@ -402,7 +637,7 @@ fun CameraViewComponent(
                     }
                 }
 
-                // Minimal AR Status Dot
+                    // Minimal AR Status Dot
                 Row(
                     modifier = Modifier.padding(start = 24.dp, top = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -411,13 +646,22 @@ fun CameraViewComponent(
                         modifier = Modifier
                             .size(6.dp)
                             .background(
-                                color = if (arCoreState == "SUPPORTED_INSTALLED") LevelGreen else MeasureYellow.copy(alpha = 0.7f),
+                                color = when {
+                                    arCoreState != "SUPPORTED_INSTALLED" -> MeasureYellow.copy(alpha = 0.7f)
+                                    arTrackingState == com.google.ar.core.TrackingState.TRACKING -> LevelGreen
+                                    else -> MeasureYellow.copy(alpha = 0.5f)
+                                },
                                 shape = CircleShape
                             )
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (arCoreState == "SUPPORTED_INSTALLED") "AR 精準追蹤" else "感測器模擬模式",
+                        text = when {
+                            arCoreState != "SUPPORTED_INSTALLED" -> "感測器模擬模式"
+                            arTrackingState == com.google.ar.core.TrackingState.TRACKING -> "AR 精準追蹤中"
+                            arTrackingState == com.google.ar.core.TrackingState.PAUSED -> "AR 追蹤已暫停"
+                            else -> "AR 初始化中..."
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.White.copy(alpha = 0.6f),
                         fontSize = 10.sp
@@ -425,13 +669,76 @@ fun CameraViewComponent(
                 }
             }
 
-            // 5. Floating Bottom Controller Hud Panel (Simplified)
-            Box(
+            // 5. Floating Bottom Controller Hud Panel
+            Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 50.dp),
-                contentAlignment = Alignment.BottomCenter
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(bottom = 36.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Horizontally scrollable list of active nodes for label editing
+                if (activePoints.isNotEmpty()) {
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
+                        contentPadding = PaddingValues(horizontal = 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        itemsIndexed(activePoints) { idx, pt ->
+                            val isLast = idx == activePoints.lastIndex
+                            val badgeColor = if (isLast) MeasureYellow else PrecisionCyan
+                            
+                            SuggestionChip(
+                                onClick = {
+                                    editingPointIndex = idx
+                                    pointLabelInputState = pt.label
+                                },
+                                label = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .background(badgeColor, CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = (idx + 1).toString(),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = Slate900
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (pt.label.isNotBlank()) pt.label else "添加標籤",
+                                            color = Color.White,
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "編輯標籤",
+                                            tint = Color.White.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                },
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = Color.Black.copy(alpha = 0.7f),
+                                    labelColor = Color.White
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    width = 1.dp,
+                                    color = badgeColor.copy(alpha = 0.5f)
+                                )
+                            )
+                        }
+                    }
+                }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -453,7 +760,15 @@ fun CameraViewComponent(
 
                     // Main Action (+)
                     Surface(
-                        onClick = { viewModel.addPoint() },
+                        onClick = { 
+                            // Tactile interaction feedback
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            // Pass screen size for hit testing in AR mode
+                            val density = context.resources.displayMetrics.density
+                            val screenWidth = context.resources.displayMetrics.widthPixels.toFloat() / density
+                            val screenHeight = context.resources.displayMetrics.heightPixels.toFloat() / density
+                            viewModel.addPoint(screenWidth, screenHeight) 
+                        },
                         color = MeasureYellow,
                         shape = CircleShape,
                         shadowElevation = 6.dp,
@@ -468,8 +783,9 @@ fun CameraViewComponent(
                     Surface(
                         onClick = {
                             if (activePoints.isNotEmpty()) {
-                                viewModel.saveCurrentMeasurement(null)
-                                viewModel.clearActivePoints()
+                                saveTitleTextState = ""
+                                saveNotesTextState = ""
+                                showSaveMeasurementDialog = true
                             } else {
                                 onShowHistoryClick()
                             }
@@ -548,6 +864,132 @@ fun CameraViewComponent(
             },
             dismissButton = {
                 TextButton(onClick = { showHeightDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    // Edit Point Label Dialog Modal
+    editingPointIndex?.let { index ->
+        AlertDialog(
+            onDismissRequest = { editingPointIndex = null },
+            containerColor = Slate800,
+            title = { Text("編輯標註點 #${index + 1} 標籤", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(
+                        "為此 AR 空間標記點指派一個說明（例如：桌子起點、牆角、高度上限）。這將出現在 3D 空間視圖與匯出的報告佈置圖中。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = CadetBlue
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = pointLabelInputState,
+                        onValueChange = { pointLabelInputState = it },
+                        label = { Text("標註點標籤") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MeasureYellow,
+                            unfocusedBorderColor = Slate600,
+                            focusedLabelColor = MeasureYellow,
+                            unfocusedLabelColor = CadetBlue,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.updatePointLabel(index, pointLabelInputState)
+                        editingPointIndex = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MeasureYellow, contentColor = Slate900)
+                ) {
+                    Text("儲存標籤")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { editingPointIndex = null },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color.White)
+                ) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    // Save Complete Measurement Modal
+    if (showSaveMeasurementDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveMeasurementDialog = false },
+            containerColor = Slate800,
+            title = { Text("儲存測量紀錄", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(
+                        "保存本次 AR 空間測量數值、分段長度分析、標註點分佈以及 3D 投影佈線。您可以稍後將其匯出成圖片或 PDF 分享！",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = CadetBlue
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = saveTitleTextState,
+                        onValueChange = { saveTitleTextState = it },
+                        label = { Text("測量名稱 (例如：門框寬度、鋼琴長度)") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MeasureYellow,
+                            unfocusedBorderColor = Slate600,
+                            focusedLabelColor = MeasureYellow,
+                            unfocusedLabelColor = CadetBlue,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = saveNotesTextState,
+                        onValueChange = { saveNotesTextState = it },
+                        label = { Text("可選附註備忘") },
+                        maxLines = 3,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MeasureYellow,
+                            unfocusedBorderColor = Slate600,
+                            focusedLabelColor = MeasureYellow,
+                            unfocusedLabelColor = CadetBlue,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val finalTitle = if (saveTitleTextState.isBlank()) {
+                            if (activePoints.size >= 2) "精密長度測量" else "定位點距離"
+                        } else saveTitleTextState
+                        viewModel.saveCurrentMeasurement(finalTitle, saveNotesTextState)
+                        showSaveMeasurementDialog = false
+                        viewModel.clearActivePoints()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = LevelGreen, contentColor = Slate900)
+                ) {
+                    Text("確認儲存")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showSaveMeasurementDialog = false },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color.White)
+                ) {
                     Text("取消")
                 }
             }

@@ -13,30 +13,26 @@ import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme =
   darkColorScheme(
-    primary = Color(0xFFD0BCFF),     // Elegant Lavender Accent
-    secondary = Color(0xFFCAC4D0),   // Supporting text gray
-    tertiary = Color(0xFF34D399),    // Neon Calibration green
-    background = Color(0xFF1C1B1F),  // Clean Charcoal dark background
-    surface = Color(0xFF2B2930),     // Soft dark card container background
-    onBackground = Color(0xFFE6E1E5),// High contrast white-gray text
-    onSurface = Color(0xFFE6E1E5)    // Card text
+    primary = PrimaryDark,
+    onPrimary = OnPrimaryDark,
+    secondary = SecondaryDark,
+    background = BackgroundDark,
+    surface = SurfaceDark,
+    onBackground = Color.White,
+    onSurface = Color.White,
+    tertiary = LevelGreen
   )
 
 private val LightColorScheme =
   lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40,
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
+    primary = PrimaryLight,
+    onPrimary = OnPrimaryLight,
+    secondary = SecondaryLight,
+    background = BackgroundLight,
+    surface = SurfaceLight,
     onBackground = Color(0xFF1C1B1F),
     onSurface = Color(0xFF1C1B1F),
-    */
+    tertiary = LevelGreen
   )
 
 @Composable

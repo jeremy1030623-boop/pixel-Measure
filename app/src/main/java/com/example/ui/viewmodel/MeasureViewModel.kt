@@ -12,7 +12,15 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.db.MeasureDatabase
 import com.example.data.model.MeasureRecord
 import com.example.data.repository.MeasureRepository
+import com.example.logic.ARMeasureEngine
+import com.example.logic.ArCoreSessionHelper
+import com.example.logic.TrigonometricMeasureEngine
 import com.google.ar.core.ArCoreApk
+import com.google.ar.core.Config
+import com.google.ar.core.Frame
+import com.google.ar.core.Plane
+import com.google.ar.core.Session
+import com.google.ar.core.TrackingState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -27,7 +35,21 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     private val repository = MeasureRepository(database.measureDao())
     
     // 測量引擎實作（預設使用三角運算）
-    private val measureEngine: com.example.logic.ARMeasureEngine = com.example.logic.TrigonometricMeasureEngine()
+    private val measureEngine: ARMeasureEngine = TrigonometricMeasureEngine()
+    
+    // ARCore Session 助手
+    private var arCoreSessionHelper: ArCoreSessionHelper? = null
+    val arSession: Session? get() = arCoreSessionHelper?.session
+    
+    private var latestFrame: Frame? = null
+    
+    private val _arTrackingState = MutableStateFlow(TrackingState.STOPPED)
+    val arTrackingState: StateFlow<TrackingState> = _arTrackingState.asStateFlow()
+    
+    fun updateArFrame(frame: Frame) {
+        latestFrame = frame
+        _arTrackingState.value = frame.camera.trackingState
+    }
 
     // Saved database records
     val savedRecords: StateFlow<List<MeasureRecord>> = repository.allRecords
@@ -63,6 +85,10 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     val arCoreActive: StateFlow<Boolean> = _arCoreActive.asStateFlow()
 
     fun checkArCoreSupport(context: Context) {
+        if (arCoreSessionHelper == null) {
+            arCoreSessionHelper = ArCoreSessionHelper(context)
+        }
+        
         viewModelScope.launch {
             try {
                 val availability = ArCoreApk.getInstance().checkAvailability(context)
@@ -71,6 +97,8 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
                 } else if (availability.isSupported) {
                     if (availability.name == "SUPPORTED_INSTALLED") {
                         _arCoreState.value = "SUPPORTED_INSTALLED"
+                        // 如果支援且已安裝，則嘗試啟動 Session
+                        arCoreSessionHelper?.createSession()
                     } else {
                         _arCoreState.value = "APK_NOT_INSTALLED"
                     }
@@ -81,6 +109,16 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
                 _arCoreState.value = "UNSUPPORTED"
             }
         }
+    }
+
+    fun onResume() {
+        arCoreSessionHelper?.resume()
+        startListening()
+    }
+
+    fun onPause() {
+        arCoreSessionHelper?.pause()
+        stopListening()
     }
 
     fun setArCoreActive(active: Boolean) {
@@ -139,12 +177,38 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // Capture standard point
-    fun addPoint() {
+    fun addPoint(screenWidth: Float? = null, screenHeight: Float? = null) {
         val currentPitch = _pitch.value
         val currentYaw = _yaw.value
         val camHeightM = cameraHeightCm.value / 100.0
         
-        val point = if (_cameraMeasureSubMode.value == 0) {
+        // 嘗試使用 ARCore HitTest
+        var arPoint: Point3D? = null
+        if (_arCoreActive.value && _arCoreState.value == "SUPPORTED_INSTALLED") {
+            val session = arSession
+            val frame = latestFrame
+            if (session != null && frame != null && screenWidth != null && screenHeight != null) {
+                val hits = frame.hitTest(screenWidth / 2f, screenHeight / 2f)
+                val hit = hits.firstOrNull { 
+                    val trackable = it.trackable
+                    trackable is Plane && trackable.isPoseInPolygon(it.hitPose)
+                }
+                
+                if (hit != null) {
+                    val pose = hit.hitPose
+                    arPoint = Point3D(
+                        x = pose.tx().toDouble(),
+                        y = pose.ty().toDouble(),
+                        z = pose.tz().toDouble(),
+                        pitch = currentPitch,
+                        yaw = currentYaw,
+                        isArPrecision = true
+                    )
+                }
+            }
+        }
+
+        val point = arPoint ?: if (_cameraMeasureSubMode.value == 0) {
             // Ground project
             measureEngine.calculateGroundPoint(currentPitch, currentYaw, camHeightM)
         } else {
@@ -175,6 +239,12 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     fun clearActivePoints() {
         capturedPoints.clear()
         _lockedBaseDistance.value = null
+    }
+
+    fun updatePointLabel(index: Int, newLabel: String) {
+        if (index in capturedPoints.indices) {
+            capturedPoints[index] = capturedPoints[index].copy(label = newLabel)
+        }
     }
 
     // Realtime distance estimation to current crosshair
@@ -209,7 +279,7 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun saveCurrentMeasurement(customLabel: String? = null) {
+    fun saveCurrentMeasurement(customLabel: String? = null, customNotes: String? = null) {
         viewModelScope.launch {
             val label = customLabel ?: if (_cameraMeasureSubMode.value == 0) {
                 if (capturedPoints.size >= 2) "測量長度" else "地面距離"
@@ -254,7 +324,9 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
                         title = label,
                         value = convertCmToSelected(centimeters, _selectedUnit.value),
                         unit = _selectedUnit.value,
-                        type = "CAM"
+                        type = "CAM",
+                        notes = customNotes,
+                        pointsData = capturedPoints.serializePoints()
                     )
                 )
                 clearActivePoints()

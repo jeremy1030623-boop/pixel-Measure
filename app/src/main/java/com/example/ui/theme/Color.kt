@@ -2,22 +2,29 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// High-fidelity dark theme colors for measuring tools (Elegant Dark look)
-val Slate900 = Color(0xFF1C1B1F) // Deep slate background
-val Slate800 = Color(0xFF2B2930) // Container background
-val Slate700 = Color(0xFF49454F) // Border / Action color 
-val Slate600 = Color(0xFF313033) // Alternate deep action button
+// Professional dark theme colors for measuring tools
+val Slate900 = Color(0xFF0F172A) // Rich deep midnight background
+val Slate800 = Color(0xFF1E293B) // Dark container background
+val Slate700 = Color(0xFF334155) // Border / Action color 
+val Slate600 = Color(0xFF475569) // Alternate deep action button
+val Slate400 = Color(0xFF94A3B8) // Muted labels
+val Slate50 = Color(0xFFF8FAFC)  // High contrast text
 
-val CadetBlue = Color(0xFFCAC4D0) // Secondary supportive label
-val MeasureYellow = Color(0xFFD0BCFF) // Main accent lavender
-val PrecisionCyan = Color(0xFFE6E1E5)  // Light primary text overlay
-val LevelGreen = Color(0xFF34D399)     // Soft level calibration green (green-400)
+val CadetBlue = Color(0xFF94A3B8) // Re-map to Slate400 for consistency
+val MeasureYellow = Color(0xFFFFD60A) // Vivid yellow for primary actions/lines
+val PrecisionCyan = Color(0xFF22D3EE) // Cyber cyan for data visualization
+val LevelGreen = Color(0xFF10B981)    // Calibration green
+val WarningOrange = Color(0xFFF59E0B) // Warning state
 
 // Material Design 3 Mapping
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
+val PrimaryDark = Color(0xFFFFD60A)
+val OnPrimaryDark = Color(0xFF332D00)
+val SecondaryDark = Color(0xFF22D3EE)
+val BackgroundDark = Color(0xFF0B0F19)
+val SurfaceDark = Color(0xFF151C2C)
 
-val Purple40 = Color(0xFF6750A4)
-val PurpleGrey40 = Color(0xFF625B71)
-val Pink40 = Color(0xFF7D5260)
+val PrimaryLight = Color(0xFF725C00)
+val OnPrimaryLight = Color(0xFFFFFFFF)
+val SecondaryLight = Color(0xFF006874)
+val BackgroundLight = Color(0xFFFFFBFF)
+val SurfaceLight = Color(0xFFFDFBFF)

@@ -18,10 +18,7 @@ class MainActivity : ComponentActivity() {
         val viewModel = ViewModelProvider(this)[MeasureViewModel::class.java]
         
         setContent {
-            MyApplicationTheme(
-                darkTheme = true, // Force a premium computational dark mode default which fits industrial measurement tools
-                dynamicColor = false // Keep our beautiful custom precision yellow & slate styling consistent
-            ) {
+            MyApplicationTheme {
                 MainScreen(viewModel = viewModel)
             }
         }

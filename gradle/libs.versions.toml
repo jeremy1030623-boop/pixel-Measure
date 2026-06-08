@@ -87,7 +87,7 @@ roborazzi-compose = { group = "io.github.takahirom.roborazzi", name = "roborazzi
 roborazzi-junit-rule = { group = "io.github.takahirom.roborazzi", name = "roborazzi-junit-rule", version.ref = "roborazzi" }
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-ai = { group = "com.google.firebase", name = "firebase-ai" }
-arcore = { group = "com.google.ar", name = "core", version = "1.42.0" }
+arcore = { group = "com.google.ar", name = "core", version = "1.46.0" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

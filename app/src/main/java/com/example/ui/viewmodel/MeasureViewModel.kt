@@ -146,7 +146,8 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun calibrateSensors() {
-        // Get the raw values (undo current calibration first)
+        // Get the current values to use as the new zero-reference
+        // Since _pitch etc are already calibrated, we add back the old offset to get the raw value
         val rawPitch = _pitch.value + _pitchOffset.value
         val rawRoll = _roll.value + _rollOffset.value
         val rawYaw = _yaw.value + _yawOffset.value
@@ -154,6 +155,11 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         _pitchOffset.value = rawPitch
         _rollOffset.value = rawRoll
         _yawOffset.value = rawYaw
+        
+        // Immediate UI feedback: reset flows to 0 so it doesn't wait for smoothing
+        _pitch.value = 0f
+        _roll.value = 0f
+        _yaw.value = 0f
 
         prefs.edit().apply {
             putFloat("pitch_offset", _pitchOffset.value)
@@ -167,6 +173,7 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         _pitchOffset.value = 0f
         _rollOffset.value = 0f
         _yawOffset.value = 0f
+        // Let the next sensor reading update the flows naturally
         prefs.edit().clear().apply()
     }
 

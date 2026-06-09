@@ -148,7 +148,12 @@ fun MainScreen(viewModel: MeasureViewModel) {
                                 },
                                 selectedUnit = selectedUnit
                             )
-                            2 -> SurfaceLevelComponent(pitch = pitch, roll = roll)
+                            2 -> SurfaceLevelComponent(
+                                pitch = pitch,
+                                roll = roll,
+                                onCalibrate = { viewModel.calibrateSensors() },
+                                onReset = { viewModel.resetCalibration() }
+                            )
                             3 -> WebCameraViewComponent(viewModel = viewModel)
                         }
                     }

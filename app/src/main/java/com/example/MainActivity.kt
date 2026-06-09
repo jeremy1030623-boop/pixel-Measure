@@ -15,12 +15,28 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         
         // Initialize the measuring tool viewmodel
-        val viewModel = ViewModelProvider(this)[MeasureViewModel::class.java]
+        viewModel = ViewModelProvider(this)[MeasureViewModel::class.java]
         
         setContent {
             MyApplicationTheme {
                 MainScreen(viewModel = viewModel)
             }
+        }
+    }
+
+    private lateinit var viewModel: MeasureViewModel
+
+    override fun onResume() {
+        super.onResume()
+        if (::viewModel.isInitialized) {
+            viewModel.onResume()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (::viewModel.isInitialized) {
+            viewModel.onPause()
         }
     }
 }

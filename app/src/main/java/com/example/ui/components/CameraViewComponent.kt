@@ -186,7 +186,8 @@ fun CameraViewComponent(
         viewModel.startListening()
         viewModel.checkArCoreSupport(context)
         onDispose {
-            viewModel.stopListening()
+            // Do not stop listening here, as sensors are shared across modes
+            // and managed by the global Activity/ViewModel lifecycle.
         }
     }
 

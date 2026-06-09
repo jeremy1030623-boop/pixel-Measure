@@ -470,8 +470,13 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         return String.format("%.1f %s", converted, _selectedUnit.value)
     }
 
+    private var isListening = false
+
     // Sensor Registration Lifecycle
     fun startListening() {
+        if (isListening) return
+        isListening = true
+        
         // Pixel Optimization: Prioritize high-precision Fused Rotation Vector
         val rotationVector = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
         if (rotationVector != null) {
@@ -510,9 +515,11 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
 
     fun stopListening() {
         sensorManager.unregisterListener(this)
+        isListening = false
         hasRotationVector = false
         hasAccelerometer = false
         hasMagnetometer = false
+        hasGravity = false
     }
 
     private fun applyLowPassFilter(input: FloatArray, output: FloatArray) {

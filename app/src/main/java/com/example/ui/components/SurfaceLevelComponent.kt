@@ -93,8 +93,8 @@ fun SurfaceLevelComponent(
             )
         }
 
-        // 2D 氣泡水平儀
-        BubbleLevelVisual(pitch = pitch, roll = roll, color = displayColor)
+        // 激光水平線 (代替氣泡)
+        LineLevelVisual(pitch = pitch, roll = roll, color = displayColor)
 
         // 數值顯示
         Column(
@@ -161,49 +161,61 @@ fun SurfaceLevelComponent(
 }
 
 @Composable
-fun BubbleLevelVisual(pitch: Float, roll: Float, color: Color) {
-    val maxOffset = 140.dp
-    
-    // 將角度映射到偏移量 (限制在圓形範圍內)
-    val sensitivity = 5f // 敏感度：幾度偏移一個單位
-    
-    val targetOffsetX = (roll * sensitivity).dp
-    val targetOffsetY = (pitch * sensitivity).dp
-    
-    val animatedOffsetX by animateDpAsState(
-        targetValue = targetOffsetX.coerceIn(-maxOffset, maxOffset),
+fun LineLevelVisual(pitch: Float, roll: Float, color: Color) {
+    val animatedRoll by animateFloatAsState(
+        targetValue = roll,
         animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
-        label = "bubbleX"
+        label = "rollAnim"
     )
     
-    val animatedOffsetY by animateDpAsState(
-        targetValue = targetOffsetY.coerceIn(-maxOffset, maxOffset),
+    val animatedPitch by animateFloatAsState(
+        targetValue = pitch,
         animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
-        label = "bubbleY"
+        label = "pitchAnim"
     )
 
-    Canvas(modifier = Modifier.size(300.dp)) {
+    Canvas(modifier = Modifier.fillMaxSize()) {
         val cx = size.width / 2f
         val cy = size.height / 2f
         
-        // 氣泡主體
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(color, color.copy(alpha = 0.6f), Color.Transparent),
-                center = Offset(cx + animatedOffsetX.toPx(), cy + animatedOffsetY.toPx()),
-                radius = 28.dp.toPx()
-            ),
-            radius = 28.dp.toPx(),
-            center = Offset(cx + animatedOffsetX.toPx(), cy + animatedOffsetY.toPx())
-        )
+        // 根據 Pitch 平移 (1度位移 10px)
+        val verticalOffset = animatedPitch * 10f
         
-        // 氣泡邊框與高光
-        drawCircle(
-            color = Color.White.copy(alpha = 0.8f),
-            radius = 28.dp.toPx(),
-            center = Offset(cx + animatedOffsetX.toPx(), cy + animatedOffsetY.toPx()),
-            style = Stroke(width = 2.dp.toPx())
-        )
+        withTransform({
+            // 根據 Roll 旋轉
+            rotate(degrees = -animatedRoll, pivot = Offset(cx, cy + verticalOffset))
+            translate(top = verticalOffset)
+        }) {
+            // 繪製主水平線
+            drawLine(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(Color.Transparent, color, color, Color.Transparent),
+                    startX = 0f,
+                    endX = size.width
+                ),
+                start = Offset(0f, cy),
+                end = Offset(size.width, cy),
+                strokeWidth = 6.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+            
+            // 核心發光點
+            drawCircle(
+                color = color.copy(alpha = 0.3f),
+                radius = 20.dp.toPx(),
+                center = Offset(cx, cy)
+            )
+            drawCircle(
+                color = color,
+                radius = 8.dp.toPx(),
+                center = Offset(cx, cy)
+            )
+            drawCircle(
+                color = Color.White,
+                radius = 3.dp.toPx(),
+                center = Offset(cx, cy)
+            )
+        }
     }
 }
 

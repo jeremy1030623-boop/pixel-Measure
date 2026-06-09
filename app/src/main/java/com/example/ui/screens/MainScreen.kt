@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.components.CameraViewComponent
 import com.example.ui.components.RulerComponent
 import com.example.ui.components.SurfaceLevelComponent
+import com.example.ui.components.WebCameraViewComponent
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MeasureViewModel
 import com.example.ui.viewmodel.Point3D
@@ -72,7 +73,8 @@ fun MainScreen(viewModel: MeasureViewModel) {
                             text = when (currentMode) {
                                 0 -> "相機 AR 測量"
                                 1 -> "螢幕卡鉗直尺"
-                                else -> "表面水平校正"
+                                2 -> "表面水平校正"
+                                else -> "AI 視覺測量 (Web API)"
                             },
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.ExtraBold,
@@ -80,12 +82,29 @@ fun MainScreen(viewModel: MeasureViewModel) {
                         )
 
                         // Quick Unit Selector Capsule HUD
-                        Row(
-                            modifier = Modifier
-                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
-                                .padding(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Calibration Button
+                            IconButton(
+                                onClick = { viewModel.calibrateSensors() },
+                                modifier = Modifier
+                                    .padding(end = 8.dp)
+                                    .background(MaterialTheme.colorScheme.tertiaryContainer, RoundedCornerShape(12.dp))
+                                    .size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Balance,
+                                    contentDescription = "校準",
+                                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
+                                    .padding(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                             listOf("cm", "m", "in", "ft").forEach { unit ->
                                 Box(
                                     modifier = Modifier
@@ -107,6 +126,7 @@ fun MainScreen(viewModel: MeasureViewModel) {
                         }
                     }
                 }
+            }
 
                 // Tool viewport loader with animation
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -129,13 +149,14 @@ fun MainScreen(viewModel: MeasureViewModel) {
                                 selectedUnit = selectedUnit
                             )
                             2 -> SurfaceLevelComponent(pitch = pitch, roll = roll)
+                            3 -> WebCameraViewComponent(viewModel = viewModel)
                         }
                     }
                 }
 
                 // Visual Bottom Navigation tabs bar
                 NavigationBar(
-                    containerColor = Slate900,
+                    containerColor = MaterialTheme.colorScheme.surface,
                     tonalElevation = 8.dp
                 ) {
                     NavigationBarItem(
@@ -144,11 +165,11 @@ fun MainScreen(viewModel: MeasureViewModel) {
                         icon = { Icon(Icons.Default.CameraAlt, contentDescription = "相機") },
                         label = { Text("相機 AR") },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color.Black,
-                            selectedTextColor = MeasureYellow,
-                            unselectedIconColor = CadetBlue,
-                            unselectedTextColor = CadetBlue,
-                            indicatorColor = MeasureYellow
+                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer
                         )
                     )
                     NavigationBarItem(
@@ -157,24 +178,37 @@ fun MainScreen(viewModel: MeasureViewModel) {
                         icon = { Icon(Icons.Default.Straighten, contentDescription = "直尺") },
                         label = { Text("螢幕尺") },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color.Black,
-                            selectedTextColor = MeasureYellow,
-                            unselectedIconColor = CadetBlue,
-                            unselectedTextColor = CadetBlue,
-                            indicatorColor = MeasureYellow
+                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer
                         )
                     )
                     NavigationBarItem(
                         selected = currentMode == 2,
                         onClick = { viewModel.setMode(2) },
                         icon = { Icon(Icons.Default.Explore, contentDescription = "表面水平") },
-                        label = { Text("表面水平") },
+                        label = { Text("水平儀") },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color.Black,
-                            selectedTextColor = MeasureYellow,
-                            unselectedIconColor = CadetBlue,
-                            unselectedTextColor = CadetBlue,
-                            indicatorColor = MeasureYellow
+                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    )
+                    NavigationBarItem(
+                        selected = currentMode == 3,
+                        onClick = { viewModel.setMode(3) },
+                        icon = { Icon(Icons.Default.AutoAwesome, contentDescription = "AI 測量") },
+                        label = { Text("AI 測量") },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer
                         )
                     )
                 }
@@ -182,12 +216,12 @@ fun MainScreen(viewModel: MeasureViewModel) {
 
             // Wide Tablet side-by-side History Panel (Material 3 Supporting Pane Layout)
             if (isWideScreen) {
-                VerticalDivider(color = Slate800, thickness = 1.dp)
+                VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
                 Box(
                     modifier = Modifier
                         .width(320.dp)
                         .fillMaxHeight()
-                        .background(Slate800)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
                         .padding(16.dp)
                         .padding(top = 24.dp)
                 ) {
@@ -204,7 +238,7 @@ fun MainScreen(viewModel: MeasureViewModel) {
         if (showHistorySheet && !isWideScreen) {
             ModalBottomSheet(
                 onDismissRequest = { showHistorySheet = false },
-                containerColor = Slate800,
+                containerColor = MaterialTheme.colorScheme.surface,
                 scrimColor = Color.Black.copy(alpha = 0.6f)
             ) {
                 Box(
@@ -258,7 +292,7 @@ fun HistoryContentPane(
                 "儲存在地測量記錄",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             if (savedRecords.isNotEmpty()) {
@@ -275,21 +309,21 @@ fun HistoryContentPane(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("搜尋名稱或備註描述...", color = CadetBlue) },
-                leadingIcon = { Icon(Icons.Default.Search, null, tint = CadetBlue) },
+                placeholder = { Text("搜尋名稱或備註描述...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)) },
+                leadingIcon = { Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Clear, null, tint = CadetBlue)
+                            Icon(Icons.Default.Clear, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 },
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MeasureYellow,
-                    unfocusedBorderColor = Slate600,
-                    focusedContainerColor = Slate700,
-                    unfocusedContainerColor = Slate700
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
                 ),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
@@ -311,19 +345,19 @@ fun HistoryContentPane(
                 Icon(
                     Icons.Default.History,
                     contentDescription = "無記錄",
-                    tint = CadetBlue.copy(alpha = 0.4f),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                     modifier = Modifier.size(56.dp)
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     if (savedRecords.isEmpty()) "尚無儲存的測量數據" else "無匹配的搜尋結果",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = CadetBlue
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     if (savedRecords.isEmpty()) "使用相機 AR 與螢幕尺子測量，並點擊「儲存」按鈕來記錄您的數據。" else "嘗試更換其他搜尋關鍵字後再行重試。",
                     style = MaterialTheme.typography.bodySmall,
-                    color = CadetBlue.copy(alpha = 0.6f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(horizontal = 24.dp)
                 )
@@ -339,7 +373,7 @@ fun HistoryContentPane(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { expandedRecordId = if (isExpanded) null else record.id },
-                        colors = CardDefaults.cardColors(containerColor = Slate700)
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
                     ) {
                         Column {
                             Row(
@@ -358,7 +392,7 @@ fun HistoryContentPane(
                                         modifier = Modifier
                                             .size(36.dp)
                                             .background(
-                                                if (record.type == "CAM") Color(0x330EA5E9) else Color(0x33F59E0B),
+                                                MaterialTheme.colorScheme.primaryContainer,
                                                 CircleShape
                                             ),
                                         contentAlignment = Alignment.Center
@@ -366,7 +400,7 @@ fun HistoryContentPane(
                                         Icon(
                                             imageVector = if (record.type == "CAM") Icons.Default.CameraAlt else Icons.Default.Straighten,
                                             contentDescription = "模式",
-                                            tint = if (record.type == "CAM") PrecisionCyan else MeasureYellow,
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
                                             modifier = Modifier.size(16.dp)
                                         )
                                     }
@@ -378,14 +412,14 @@ fun HistoryContentPane(
                                             text = record.title,
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color.White,
+                                            color = MaterialTheme.colorScheme.onSurface,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
                                             text = dateTimeFormatter.format(Date(record.timestamp)),
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = CadetBlue
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
@@ -399,7 +433,7 @@ fun HistoryContentPane(
                                             fontFamily = FontFamily.Monospace,
                                             fontWeight = FontWeight.Black
                                         ),
-                                        color = MeasureYellow
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
                                     IconButton(
@@ -420,7 +454,7 @@ fun HistoryContentPane(
 
                             if (isExpanded) {
                                 Divider(
-                                    color = Slate600.copy(alpha = 0.5f),
+                                    color = MaterialTheme.colorScheme.outlineVariant,
                                     thickness = 1.dp,
                                     modifier = Modifier.padding(horizontal = 12.dp)
                                 )
@@ -430,12 +464,12 @@ fun HistoryContentPane(
                                             "備註分析:",
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
-                                            color = MeasureYellow
+                                            color = MaterialTheme.colorScheme.primary
                                         )
                                         Text(
                                             record.notes,
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = Color.White.copy(alpha = 0.9f)
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
                                         Spacer(modifier = Modifier.height(10.dp))
                                     }
@@ -452,7 +486,7 @@ fun HistoryContentPane(
                                                 "AR 測量標註分析 (${points.size} 個空間標點):",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.Bold,
-                                                color = PrecisionCyan
+                                                color = MaterialTheme.colorScheme.tertiary
                                             )
                                             Spacer(modifier = Modifier.height(4.dp))
                                             points.forEachIndexed { pIdx, pt ->
@@ -461,7 +495,7 @@ fun HistoryContentPane(
                                                     " • $pointName: (X:${String.format("%.2f", pt.x)}, Y:${String.format("%.2f", pt.y)}, Z:${String.format("%.2f", pt.z)})",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     fontFamily = FontFamily.Monospace,
-                                                    color = CadetBlue
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                             }
                                             Spacer(modifier = Modifier.height(10.dp))
@@ -473,7 +507,7 @@ fun HistoryContentPane(
                                         "分享與備份導出:",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.White.copy(alpha = 0.6f)
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Row(
@@ -482,7 +516,7 @@ fun HistoryContentPane(
                                     ) {
                                         Button(
                                             onClick = { com.example.logic.ShareUtility.shareTextReport(context, record) },
-                                            colors = ButtonDefaults.buttonColors(containerColor = Slate600, contentColor = Color.White),
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface),
                                             shape = RoundedCornerShape(8.dp),
                                             modifier = Modifier.weight(1f).height(32.dp),
                                             contentPadding = PaddingValues(0.dp)
@@ -496,7 +530,7 @@ fun HistoryContentPane(
                                         
                                         Button(
                                             onClick = { com.example.logic.ShareUtility.shareImageReport(context, record) },
-                                            colors = ButtonDefaults.buttonColors(containerColor = Slate600, contentColor = Color.White),
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface),
                                             shape = RoundedCornerShape(8.dp),
                                             modifier = Modifier.weight(1f).height(32.dp),
                                             contentPadding = PaddingValues(0.dp)
@@ -510,7 +544,7 @@ fun HistoryContentPane(
 
                                         Button(
                                             onClick = { com.example.logic.ShareUtility.sharePdfReport(context, record) },
-                                            colors = ButtonDefaults.buttonColors(containerColor = Slate600, contentColor = Color.White),
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface),
                                             shape = RoundedCornerShape(8.dp),
                                             modifier = Modifier.weight(1f).height(32.dp),
                                             contentPadding = PaddingValues(0.dp)

@@ -1,11 +1,19 @@
 package com.example.logic
 
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.*
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
+import android.view.PixelCopy
+import android.view.View
+import android.view.Window
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.example.data.model.MeasureRecord
@@ -18,6 +26,75 @@ import java.util.*
 import kotlin.math.*
 
 object ShareUtility {
+
+    /**
+     * Captures a screenshot of the specified view (including SurfaceView like Camera Preview)
+     * and saves it to the gallery.
+     */
+    fun captureScreen(window: Window, view: View, onComplete: (Uri?) -> Unit) {
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        val locationOfViewInWindow = IntArray(2)
+        view.getLocationInWindow(locationOfViewInWindow)
+
+        try {
+            PixelCopy.request(
+                window,
+                Rect(
+                    locationOfViewInWindow[0],
+                    locationOfViewInWindow[1],
+                    locationOfViewInWindow[0] + view.width,
+                    locationOfViewInWindow[1] + view.height
+                ),
+                bitmap,
+                { copyResult ->
+                    if (copyResult == PixelCopy.SUCCESS) {
+                        onComplete(saveBitmapToGallery(view.context, bitmap))
+                    } else {
+                        onComplete(null)
+                    }
+                },
+                Handler(Looper.getMainLooper())
+            )
+        } catch (e: IllegalArgumentException) {
+            onComplete(null)
+        }
+    }
+
+    private fun saveBitmapToGallery(context: Context, bitmap: Bitmap): Uri? {
+        val filename = "MeasureScreenshot_${System.currentTimeMillis()}.jpg"
+        var uri: Uri? = null
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/MeasureApp")
+                }
+                val contentResolver = context.contentResolver
+                uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                uri?.let {
+                    contentResolver.openOutputStream(it)?.use { out ->
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
+                    }
+                }
+            } else {
+                val imagesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString() + "/MeasureApp"
+                val file = File(imagesDir)
+                if (!file.exists()) file.mkdirs()
+                val imageFile = File(imagesDir, filename)
+                FileOutputStream(imageFile).use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
+                }
+                uri = Uri.fromFile(imageFile)
+                // Trigger media scanner
+                context.sendBroadcast(Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, uri))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return uri
+    }
 
     /**
      * Formats a clean structural text report of the measurement

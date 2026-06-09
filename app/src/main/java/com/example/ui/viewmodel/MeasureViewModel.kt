@@ -60,8 +60,14 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         )
 
     // App state flows
-    private val _currentMode = MutableStateFlow(0) // 0: 相機 AR 測量, 1: 螢幕直尺, 2: 泡泡水平儀
+    private val _currentMode = MutableStateFlow(0) // 0: 相機 AR 測量, 1: 螢幕直尺, 2: 泡泡水平儀, 3: AI 智慧測量 (Web API)
     val currentMode: StateFlow<Int> = _currentMode.asStateFlow()
+
+    private val _aiResult = MutableStateFlow<String?>(null)
+    val aiResult: StateFlow<String?> = _aiResult.asStateFlow()
+
+    private val _isAiProcessing = MutableStateFlow(false)
+    val isAiProcessing: StateFlow<Boolean> = _isAiProcessing.asStateFlow()
 
     private val _selectedUnit = MutableStateFlow("cm") // "cm", "m", "in", "ft"
     val selectedUnit: StateFlow<String> = _selectedUnit.asStateFlow()
@@ -125,6 +131,45 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         _arCoreActive.value = active
     }
 
+    // Sensor calibration offsets
+    private val _pitchOffset = MutableStateFlow(0f)
+    private val _rollOffset = MutableStateFlow(0f)
+    private val _yawOffset = MutableStateFlow(0f)
+
+    private val prefs = application.getSharedPreferences("measure_prefs", Context.MODE_PRIVATE)
+
+    init {
+        // Load calibration data
+        _pitchOffset.value = prefs.getFloat("pitch_offset", 0f)
+        _rollOffset.value = prefs.getFloat("roll_offset", 0f)
+        _yawOffset.value = prefs.getFloat("yaw_offset", 0f)
+    }
+
+    fun calibrateSensors() {
+        // Get the raw values (undo current calibration first)
+        val rawPitch = _pitch.value + _pitchOffset.value
+        val rawRoll = _roll.value + _rollOffset.value
+        val rawYaw = _yaw.value + _yawOffset.value
+
+        _pitchOffset.value = rawPitch
+        _rollOffset.value = rawRoll
+        _yawOffset.value = rawYaw
+
+        prefs.edit().apply {
+            putFloat("pitch_offset", _pitchOffset.value)
+            putFloat("roll_offset", _rollOffset.value)
+            putFloat("yaw_offset", _yawOffset.value)
+            apply()
+        }
+    }
+
+    fun resetCalibration() {
+        _pitchOffset.value = 0f
+        _rollOffset.value = 0f
+        _yawOffset.value = 0f
+        prefs.edit().clear().apply()
+    }
+
     // Raw Sensor state
     private val _pitch = MutableStateFlow(0f)  // degree (-90 is straight down, 0 is flat looking ahead)
     val pitch: StateFlow<Float> = _pitch.asStateFlow()
@@ -150,12 +195,54 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     private val accelerometerReading = FloatArray(3)
     private val magnetometerReading = FloatArray(3)
     private val rotationMatrix = FloatArray(9)
+    private val processedRotationMatrix = FloatArray(9)
     private val orientationAngles = FloatArray(3)
+    
+    private val sensorAlpha = 0.2f // Base smoothing
+    private val fastAlpha = 0.8f // Faster response when moving
+    
     private var hasAccelerometer = false
     private var hasMagnetometer = false
+    private var hasRotationVector = false
+    private var hasGravity = false
 
     fun setMode(mode: Int) {
         _currentMode.value = mode
+        if (mode != 3) _aiResult.value = null
+    }
+
+    // AI Distance Estimation (Real via Gemini)
+    fun estimateDistanceByAi(base64Image: String? = null) {
+        viewModelScope.launch {
+            _isAiProcessing.value = true
+            try {
+                if (base64Image != null) {
+                    val apiKey = com.example.BuildConfig.GEMINI_API_KEY
+                    val prompt = "請估算圖中點擊位置物體的距離。請僅返回一個估計的數值與單位（例如：1.5 公尺），不要返回其他文字。"
+                    val request = com.example.logic.GenerateContentRequest(
+                        contents = listOf(
+                            com.example.logic.Content(
+                                parts = listOf(
+                                    com.example.logic.Part(text = prompt),
+                                    com.example.logic.Part(inlineData = com.example.logic.InlineData(mimeType = "image/jpeg", data = base64Image))
+                                )
+                            )
+                        ),
+                        generationConfig = com.example.logic.GenerationConfig(temperature = 0.4f)
+                    )
+                    val response = com.example.logic.RetrofitClient.service.generateContent(apiKey, request)
+                    val textResult = response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                    _aiResult.value = textResult ?: "無法估算距離"
+                } else {
+                    val d = getLiveDistanceText()
+                    _aiResult.value = "預估距離: $d"
+                }
+            } catch (e: Exception) {
+                _aiResult.value = "AI 服務暫時不可用: ${e.message}"
+            } finally {
+                _isAiProcessing.value = false
+            }
+        }
     }
 
     fun setUnit(unit: String) {
@@ -378,33 +465,75 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
 
     // Sensor Registration Lifecycle
     fun startListening() {
-        val accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        if (accel != null) {
-            sensorManager.registerListener(this, accel, SensorManager.SENSOR_DELAY_UI)
-            hasAccelerometer = true
+        // Pixel Optimization: Prioritize high-precision Fused Rotation Vector
+        val rotationVector = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        if (rotationVector != null) {
+            sensorManager.registerListener(this, rotationVector, SensorManager.SENSOR_DELAY_FASTEST)
+            hasRotationVector = true
+            return 
         }
+
+        // Alternative optimization: Geomagnetic Rotation Vector
+        val geoRotation = sensorManager.getDefaultSensor(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR)
+        if (geoRotation != null) {
+            sensorManager.registerListener(this, geoRotation, SensorManager.SENSOR_DELAY_FASTEST)
+            hasRotationVector = true
+            return
+        }
+
+        // Fallback to Gravity (more stable than Accelerometer for level tools)
+        val gravity = sensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY)
+        if (gravity != null) {
+            sensorManager.registerListener(this, gravity, SensorManager.SENSOR_DELAY_FASTEST)
+            hasGravity = true
+        } else {
+            val accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            if (accel != null) {
+                sensorManager.registerListener(this, accel, SensorManager.SENSOR_DELAY_FASTEST)
+                hasAccelerometer = true
+            }
+        }
+
         val magnet = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
         if (magnet != null) {
-            sensorManager.registerListener(this, magnet, SensorManager.SENSOR_DELAY_UI)
+            sensorManager.registerListener(this, magnet, SensorManager.SENSOR_DELAY_FASTEST)
             hasMagnetometer = true
         }
     }
 
     fun stopListening() {
         sensorManager.unregisterListener(this)
+        hasRotationVector = false
+        hasAccelerometer = false
+        hasMagnetometer = false
+    }
+
+    private fun applyLowPassFilter(input: FloatArray, output: FloatArray) {
+        for (i in input.indices) {
+            output[i] = output[i] + sensorAlpha * (input[i] - output[i])
+        }
     }
 
     override fun onSensorChanged(event: SensorEvent) {
+        if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR || 
+            event.sensor.type == Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR) {
+            SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+            remapAndProcess()
+            return
+        }
+
         when (event.sensor.type) {
+            Sensor.TYPE_GRAVITY -> {
+                System.arraycopy(event.values, 0, accelerometerReading, 0, 3)
+            }
             Sensor.TYPE_ACCELEROMETER -> {
-                System.arraycopy(event.values, 0, accelerometerReading, 0, accelerometerReading.size)
+                applyLowPassFilter(event.values, accelerometerReading)
             }
             Sensor.TYPE_MAGNETIC_FIELD -> {
-                System.arraycopy(event.values, 0, magnetometerReading, 0, magnetometerReading.size)
+                applyLowPassFilter(event.values, magnetometerReading)
             }
         }
 
-        // Standard orientation matrix solver
         val success = SensorManager.getRotationMatrix(
             rotationMatrix,
             null,
@@ -413,36 +542,89 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         )
 
         if (success) {
-            SensorManager.getOrientation(rotationMatrix, orientationAngles)
-            // azimuth (yaw)
-            var azimuth = Math.toDegrees(orientationAngles[0].toDouble()).toFloat()
-            if (azimuth < 0) azimuth += 360f // absolute heading
-            _yaw.value = azimuth
-
-            // pitch (around X axis)
-            _pitch.value = Math.toDegrees(orientationAngles[1].toDouble()).toFloat()
-            
-            // roll (around Y axis)
-            _roll.value = Math.toDegrees(orientationAngles[2].toDouble()).toFloat()
+            remapAndProcess()
         } else {
-            // Fallback: simple gravity calculation from accelerometer alone (if magnet is offline)
-            val ax = accelerometerReading[0]
-            val ay = accelerometerReading[1]
-            val az = accelerometerReading[2]
-            val norm = sqrt((ax * ax + ay * ay + az * az).toDouble())
-            if (norm > 0) {
-                val x = ax / norm
-                val y = ay / norm
-                val z = az / norm
+            processFallbackOrientation()
+        }
+    }
 
-                // Pitch - vertical angle: pitch down points negative, up points positive
-                val computedPitch = -asin(y) * (180.0 / Math.PI)
-                _pitch.value = computedPitch.toFloat()
-
-                // Roll - side to side angle
-                val computedRoll = atan2(x, z) * (180.0 / Math.PI)
-                _roll.value = computedRoll.toFloat()
+    private fun remapAndProcess() {
+        val display = (getApplication<Application>().getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay
+        val rotation = display.rotation
+        
+        var axisX = SensorManager.AXIS_X
+        var axisY = SensorManager.AXIS_Y
+        
+        when (rotation) {
+            android.view.Surface.ROTATION_0 -> {
+                axisX = SensorManager.AXIS_X
+                axisY = SensorManager.AXIS_Y
             }
+            android.view.Surface.ROTATION_90 -> {
+                axisX = SensorManager.AXIS_Y
+                axisY = SensorManager.AXIS_MINUS_X
+            }
+            android.view.Surface.ROTATION_180 -> {
+                axisX = SensorManager.AXIS_MINUS_X
+                axisY = SensorManager.AXIS_MINUS_Y
+            }
+            android.view.Surface.ROTATION_270 -> {
+                axisX = SensorManager.AXIS_MINUS_Y
+                axisY = SensorManager.AXIS_X
+            }
+        }
+        
+        if (SensorManager.remapCoordinateSystem(rotationMatrix, axisX, axisY, processedRotationMatrix)) {
+            processRotationMatrix(processedRotationMatrix)
+        } else {
+            processRotationMatrix(rotationMatrix)
+        }
+    }
+
+    private fun processRotationMatrix(matrix: FloatArray) {
+        SensorManager.getOrientation(matrix, orientationAngles)
+        
+        // azimuth (yaw)
+        var azimuth = Math.toDegrees(orientationAngles[0].toDouble()).toFloat()
+        if (azimuth < 0) azimuth += 360f
+        
+        val newYaw = azimuth - _yawOffset.value
+        val yawDiff = abs(newYaw - _yaw.value)
+        val yawAlpha = if (yawDiff > 10f) fastAlpha else sensorAlpha
+        _yaw.value = _yaw.value + yawAlpha * (newYaw - _yaw.value)
+
+        // pitch (around X axis)
+        val newPitchRaw = Math.toDegrees(orientationAngles[1].toDouble()).toFloat()
+        val calibratedPitch = newPitchRaw - _pitchOffset.value
+        val pitchDiff = abs(calibratedPitch - _pitch.value)
+        val pitchAlpha = if (pitchDiff > 5f) fastAlpha else sensorAlpha
+        _pitch.value = _pitch.value + pitchAlpha * (calibratedPitch - _pitch.value)
+        
+        // roll (around Y axis)
+        val newRollRaw = Math.toDegrees(orientationAngles[2].toDouble()).toFloat()
+        val calibratedRoll = newRollRaw - _rollOffset.value
+        val rollDiff = abs(calibratedRoll - _roll.value)
+        val rollAlpha = if (rollDiff > 5f) fastAlpha else sensorAlpha
+        _roll.value = _roll.value + rollAlpha * (calibratedRoll - _roll.value)
+    }
+
+    private fun processFallbackOrientation() {
+        val ax = accelerometerReading[0]
+        val ay = accelerometerReading[1]
+        val az = accelerometerReading[2]
+        val norm = sqrt((ax * ax + ay * ay + az * az).toDouble())
+        if (norm > 0) {
+            val x = ax / norm
+            val y = ay / norm
+            val z = az / norm
+
+            val computedPitch = -asin(y) * (180.0 / Math.PI)
+            val calibratedPitch = computedPitch.toFloat() - _pitchOffset.value
+            _pitch.value = _pitch.value + sensorAlpha * (calibratedPitch - _pitch.value)
+
+            val computedRoll = atan2(x, z) * (180.0 / Math.PI)
+            val calibratedRoll = computedRoll.toFloat() - _rollOffset.value
+            _roll.value = _roll.value + sensorAlpha * (calibratedRoll - _roll.value)
         }
     }
 

@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -27,174 +28,121 @@ import kotlin.math.*
 
 @Composable
 fun SurfaceLevelComponent(
-    pitch: Float,  // 前後傾斜
-    roll: Float    // 左右偏擺
+    pitch: Float,  // 前後傾斜 (前後)
+    roll: Float    // 左右偏擺 (旋轉)
 ) {
-    // 定義水平判斷標準（0.5度以內視為完美水平）
-    val isLevel = abs(pitch) < 0.5f && abs(roll) < 0.5f
-    val displayColor = if (isLevel) LevelGreen else MeasureYellow
+    // 判定水平標準：0.1度以內視為極致水平
+    val isPerfectLevel = abs(roll) < 0.1f && abs(pitch) < 0.5f
+    val isNearLevel = abs(roll) < 1.0f
+    
+    val displayColor = if (isPerfectLevel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+
+    // 當達到完美水平時觸發觸覺反饋
+    LaunchedEffect(isPerfectLevel) {
+        if (isPerfectLevel) {
+            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+        }
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Slate900)
-            .padding(24.dp),
+            .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center
     ) {
+        // 背景裝飾格點 (保持 0.0 度參考感)
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val cy = size.height / 2f
+            drawLine(
+                color = Color.White.copy(alpha = 0.05f),
+                start = Offset(0f, cy),
+                end = Offset(size.width, cy),
+                strokeWidth = 1f,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(20f, 20f), 0f)
+            )
+        }
+
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxSize()
+            verticalArrangement = Arrangement.Center
         ) {
-            // Header Display
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = if (isLevel) "表面已完全水平" else "平面校正進行中",
-                    style = MaterialTheme.typography.headlineSmall,
+            // 主顯示數值
+            Text(
+                text = String.format("%.1f°", roll),
+                style = MaterialTheme.typography.displayLarge.copy(
                     fontWeight = FontWeight.Black,
-                    color = displayColor
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "數位 3D 空間角度補正引擎",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = CadetBlue
-                )
-            }
-
-            // 3D Perspective Plane Visualization
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                LevelerPlate3D(pitch = pitch, roll = roll, isLevel = isLevel)
-            }
-
-            // Bottom Readout Panel
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Slate800),
-                shape = RoundedCornerShape(24.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .padding(20.dp)
-                        .fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    AngleDisplay(label = "縱向俯仰 (Pitch)", value = pitch, color = displayColor)
-                    VerticalDivider(modifier = Modifier.height(30.dp).width(1.dp), color = Slate700)
-                    AngleDisplay(label = "橫向偏擺 (Roll)", value = roll, color = displayColor)
-                }
-            }
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = (-2).sp
+                ),
+                color = displayColor
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Text(
+                text = if (isPerfectLevel) "已校準 (0.0° LOCKED)" else "調整水平線以歸零",
+                style = MaterialTheme.typography.labelLarge,
+                color = if (isPerfectLevel) displayColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                fontWeight = FontWeight.Bold
+            )
         }
+
+        // 極簡水平線元件
+        LaserLevelLine(roll = roll, pitch = pitch, isLevel = isPerfectLevel, color = displayColor)
     }
 }
 
 @Composable
-fun LevelerPlate3D(pitch: Float, roll: Float, isLevel: Boolean) {
-    val displayColor = if (isLevel) LevelGreen else MeasureYellow
-    
+fun LaserLevelLine(roll: Float, pitch: Float, isLevel: Boolean, color: Color) {
+    val animatedRoll by animateFloatAsState(
+        targetValue = if (isLevel) 0f else roll,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
+        label = "roll"
+    )
+
     Canvas(modifier = Modifier.fillMaxSize()) {
         val cx = size.width / 2f
         val cy = size.height / 2f
-        val plateSize = min(size.width, size.height) * 0.8f
         
-        // 繪製背景參考框
-        drawRect(
-            color = Slate800.copy(alpha = 0.5f),
-            topLeft = Offset(cx - plateSize/2, cy - plateSize/2),
-            size = Size(plateSize, plateSize),
-            style = Stroke(width = 2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f))
-        )
-
-        // 應用 3D 變換模擬平面傾斜
         withTransform({
-            // 將傳感器數據映射到視覺傾斜 (限制角度以維持透視感)
-            val rotateX = pitch.coerceIn(-30f, 30f)
-            val rotateY = roll.coerceIn(-30f, 30f)
-            
-            // Compose 旋轉繞中心進行
-            rotate(degrees = rotateY, pivot = Offset(cx, cy))
+            rotate(degrees = -animatedRoll, pivot = Offset(cx, cy))
         }) {
-            // 繪製流體平面 (Horizon Plane)
-            val offsetLimit = plateSize * 0.4f
-            val offsetX = (roll / 15f) * offsetLimit
-            val offsetY = (-pitch / 15f) * offsetLimit
-            
-            val planeRect = Rect(
-                left = cx - plateSize/2 + offsetX,
-                top = cy - plateSize/2 + offsetY,
-                right = cx + plateSize/2 + offsetX,
-                bottom = cy + plateSize/2 + offsetY
-            )
-
-            // 平面主體
-            drawRoundRect(
-                brush = Brush.linearGradient(
-                    colors = listOf(displayColor.copy(alpha = 0.3f), displayColor.copy(alpha = 0.1f)),
-                    start = Offset(planeRect.left, planeRect.top),
-                    end = Offset(planeRect.right, planeRect.bottom)
+            // 繪製雷射平準線
+            drawLine(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(Color.Transparent, color, color, Color.Transparent),
+                    startX = 0f,
+                    endX = size.width
                 ),
-                topLeft = Offset(planeRect.left, planeRect.top),
-                size = Size(planeRect.width, planeRect.height),
-                cornerRadius = CornerRadius(16f)
+                start = Offset(0f, cy),
+                end = Offset(size.width, cy),
+                strokeWidth = if (isLevel) 8f else 4f,
+                cap = StrokeCap.Round
             )
 
-            // 繪製格點網格 (Grid)
-            val gridStep = plateSize / 4
-            for (i in 0..4) {
-                val pos = i * gridStep
-                // 橫線
-                drawLine(
-                    color = displayColor.copy(alpha = 0.2f),
-                    start = Offset(planeRect.left, planeRect.top + pos),
-                    end = Offset(planeRect.right, planeRect.top + pos),
-                    strokeWidth = 1f
-                )
-                // 直線
-                drawLine(
-                    color = displayColor.copy(alpha = 0.2f),
-                    start = Offset(planeRect.left + pos, planeRect.top),
-                    end = Offset(planeRect.right + pos, planeRect.bottom),
-                    strokeWidth = 1f
-                )
-            }
-
-            // 平面邊框
-            drawRoundRect(
-                color = displayColor,
-                topLeft = Offset(planeRect.left, planeRect.top),
-                size = Size(planeRect.width, planeRect.height),
-                cornerRadius = CornerRadius(16f),
-                style = Stroke(width = 4f)
-            )
-
-            // 中心瞄準點 (Target Crosshair)
+            // 完美的 0.0 度指示點
             if (isLevel) {
                 drawCircle(
-                    color = LevelGreen,
-                    radius = 20f,
+                    color = color,
+                    radius = 12f,
                     center = Offset(cx, cy),
-                    style = Stroke(width = 4f)
+                    style = Stroke(width = 3f)
+                )
+                drawCircle(
+                    color = color.copy(alpha = 0.2f),
+                    radius = 30f,
+                    center = Offset(cx, cy)
                 )
             }
         }
-
-        // 靜態中心參考線 (十字準星)
-        drawLine(color = Color.White.copy(alpha = 0.1f), start = Offset(cx - 40f, cy), end = Offset(cx + 40f, cy), strokeWidth = 2f)
-        drawLine(color = Color.White.copy(alpha = 0.1f), start = Offset(cx, cy - 40f), end = Offset(cx, cy + 40f), strokeWidth = 2f)
     }
 }
 
 @Composable
 fun AngleDisplay(label: String, value: Float, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = label, style = MaterialTheme.typography.labelSmall, color = CadetBlue)
+        Text(text = label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(modifier = Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -207,7 +155,7 @@ fun AngleDisplay(label: String, value: Float, color: Color) {
             )
             if (abs(value) < 0.5f) {
                 Spacer(modifier = Modifier.width(4.dp))
-                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = LevelGreen, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
             }
         }
     }

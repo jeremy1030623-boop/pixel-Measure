@@ -52,10 +52,15 @@ fun RulerComponent(
         else -> displayCm
     }
 
+    val colorPrimary = MaterialTheme.colorScheme.primary
+    val colorTertiary = MaterialTheme.colorScheme.tertiary
+    val colorOnSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val colorOutline = MaterialTheme.colorScheme.outlineVariant
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Slate900)
+            .background(MaterialTheme.colorScheme.background)
             .padding(16.dp)
     ) {
         Column(
@@ -67,7 +72,7 @@ fun RulerComponent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 12.dp),
-                colors = CardDefaults.cardColors(containerColor = Slate800),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 shape = RoundedCornerShape(24.dp)
             ) {
                 Column(
@@ -77,7 +82,7 @@ fun RulerComponent(
                     Text(
                         text = "螢幕直尺測量儀",
                         style = MaterialTheme.typography.titleMedium,
-                        color = CadetBlue,
+                        color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
@@ -87,7 +92,7 @@ fun RulerComponent(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Black
                         ),
-                        color = MeasureYellow
+                        color = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(
@@ -95,7 +100,7 @@ fun RulerComponent(
                             objectNameInput = "物品"
                             showSaveDialog = true
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Slate700, contentColor = Color.White),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(Icons.Default.Save, contentDescription = "儲存")
@@ -110,7 +115,7 @@ fun RulerComponent(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .background(Slate800, RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(16.dp))
                     .pointerInput(density) {
                         detectDragGestures(
                             onDrag = { change, dragAmount ->
@@ -144,7 +149,7 @@ fun RulerComponent(
                             else -> 18f          // Minor ticks
                         }
                         drawLine(
-                            color = Slate600,
+                            color = colorOutline,
                             start = Offset(w, curY),
                             end = Offset(w - tickLen, curY),
                             strokeWidth = if (idx % 10 == 0) 2.5f else 1.5f
@@ -172,7 +177,7 @@ fun RulerComponent(
                             else -> 15f              // 1/8 inch
                         }
                         drawLine(
-                            color = Slate600,
+                            color = colorOutline,
                             start = Offset(0f, curInchY),
                             end = Offset(tickLen, curInchY),
                             strokeWidth = if (inchIdx % 8 == 0) 2.5f else 1.5f
@@ -184,7 +189,7 @@ fun RulerComponent(
                     // Background grid patterns for aesthetic sci-fi appeal
                     for (xGrid in (w.toInt() / 5)..w.toInt() step (w.toInt() / 5)) {
                         drawLine(
-                            color = Color(0x0A94A3B8),
+                            color = colorOnSurfaceVariant.copy(alpha = 0.05f),
                             start = Offset(xGrid.toFloat(), 0f),
                             end = Offset(xGrid.toFloat(), h),
                             strokeWidth = 1f
@@ -193,7 +198,7 @@ fun RulerComponent(
 
                     // Draw connection line between top & bottom calipers
                     drawLine(
-                        color = PrecisionCyan.copy(alpha = 0.4f),
+                        color = colorTertiary.copy(alpha = 0.4f),
                         start = Offset(w / 2f, topCaliperY),
                         end = Offset(w / 2f, bottomCaliperY),
                         strokeWidth = 2f
@@ -201,26 +206,26 @@ fun RulerComponent(
 
                     // Draw Top Caliper handle indicator
                     drawLine(
-                        color = MeasureYellow,
+                        color = colorPrimary,
                         start = Offset(0f, topCaliperY),
                         end = Offset(w, topCaliperY),
                         strokeWidth = 3f
                     )
                     drawCircle(
-                        color = MeasureYellow,
+                        color = colorPrimary,
                         radius = 12f,
                         center = Offset(w / 2f, topCaliperY)
                     )
 
                     // Draw Bottom Caliper handle indicator
                     drawLine(
-                        color = MeasureYellow,
+                        color = colorPrimary,
                         start = Offset(0f, bottomCaliperY),
                         end = Offset(w, bottomCaliperY),
                         strokeWidth = 3f
                     )
                     drawCircle(
-                        color = MeasureYellow,
+                        color = colorPrimary,
                         radius = 12f,
                         center = Offset(w / 2f, bottomCaliperY)
                     )
@@ -236,7 +241,7 @@ fun RulerComponent(
                     Text(
                         text = "《 拖動兩端刻度進行微調測量 》",
                         style = MaterialTheme.typography.bodySmall,
-                        color = CadetBlue.copy(alpha = 0.6f),
+                        color = colorOnSurfaceVariant.copy(alpha = 0.6f),
                         textAlign = TextAlign.Center
                     )
                 }
@@ -269,13 +274,16 @@ fun RulerComponent(
                         onSaveClick(finalLabel, displayCm)
                         showSaveDialog = false
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = MeasureYellow)
+                    colors = ButtonDefaults.buttonColors(containerColor = colorPrimary, contentColor = MaterialTheme.colorScheme.onPrimary)
                 ) {
                     Text("確認儲存")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showSaveDialog = false }) {
+                TextButton(
+                    onClick = { showSaveDialog = false },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
+                ) {
                     Text("取消")
                 }
             }

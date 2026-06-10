@@ -93,32 +93,34 @@ fun SurfaceLevelComponent(
             )
         }
 
-        // 激光水平線 (代替氣泡)
-        LineLevelVisual(pitch = pitch, roll = roll, color = displayColor)
-
-        // 數值顯示
+        // 主數值顯示
         Column(
             modifier = Modifier.fillMaxSize().padding(32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Top
+            verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = "表面水平儀",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = String.format("%.1f°", roll),
+                style = MaterialTheme.typography.displayLarge.copy(
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = (-2).sp
+                ),
+                color = displayColor
             )
             
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                AngleInfoBox(label = "左右 (Roll)", value = roll, color = displayColor)
-                AngleInfoBox(label = "前後 (Pitch)", value = pitch, color = displayColor)
-            }
+            Text(
+                text = if (isPerfectLevel) "已校準 (0.0° LOCKED)" else "調整水平線以歸零",
+                style = MaterialTheme.typography.labelLarge,
+                color = if (isPerfectLevel) displayColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                fontWeight = FontWeight.Bold
+            )
         }
+
+        // 極簡水平線元件
+        LaserLevelLine(roll = roll, pitch = pitch, isLevel = isPerfectLevel, color = displayColor)
 
         // 底部校準控制
         Row(
@@ -161,32 +163,21 @@ fun SurfaceLevelComponent(
 }
 
 @Composable
-fun LineLevelVisual(pitch: Float, roll: Float, color: Color) {
+fun LaserLevelLine(roll: Float, pitch: Float, isLevel: Boolean, color: Color) {
     val animatedRoll by animateFloatAsState(
-        targetValue = roll,
+        targetValue = if (isLevel) 0f else roll,
         animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
-        label = "rollAnim"
-    )
-    
-    val animatedPitch by animateFloatAsState(
-        targetValue = pitch,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
-        label = "pitchAnim"
+        label = "roll"
     )
 
     Canvas(modifier = Modifier.fillMaxSize()) {
         val cx = size.width / 2f
         val cy = size.height / 2f
         
-        // 根據 Pitch 平移 (1度位移 10px)
-        val verticalOffset = animatedPitch * 10f
-        
         withTransform({
-            // 根據 Roll 旋轉
-            rotate(degrees = -animatedRoll, pivot = Offset(cx, cy + verticalOffset))
-            translate(top = verticalOffset)
+            rotate(degrees = -animatedRoll, pivot = Offset(cx, cy))
         }) {
-            // 繪製主水平線
+            // 繪製雷射平準線
             drawLine(
                 brush = Brush.horizontalGradient(
                     colors = listOf(Color.Transparent, color, color, Color.Transparent),
@@ -195,41 +186,46 @@ fun LineLevelVisual(pitch: Float, roll: Float, color: Color) {
                 ),
                 start = Offset(0f, cy),
                 end = Offset(size.width, cy),
-                strokeWidth = 6.dp.toPx(),
+                strokeWidth = if (isLevel) 8f else 4f,
                 cap = StrokeCap.Round
             )
-            
-            // 核心發光點
-            drawCircle(
-                color = color.copy(alpha = 0.3f),
-                radius = 20.dp.toPx(),
-                center = Offset(cx, cy)
-            )
-            drawCircle(
-                color = color,
-                radius = 8.dp.toPx(),
-                center = Offset(cx, cy)
-            )
-            drawCircle(
-                color = Color.White,
-                radius = 3.dp.toPx(),
-                center = Offset(cx, cy)
-            )
+
+            // 完美的 0.0 度指示點
+            if (isLevel) {
+                drawCircle(
+                    color = color,
+                    radius = 12f,
+                    center = Offset(cx, cy),
+                    style = Stroke(width = 3f)
+                )
+                drawCircle(
+                    color = color.copy(alpha = 0.2f),
+                    radius = 30f,
+                    center = Offset(cx, cy)
+                )
+            }
         }
     }
 }
 
 @Composable
-fun AngleInfoBox(label: String, value: Float, color: Color) {
+fun AngleDisplay(label: String, value: Float, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(
-            text = String.format("%.1f°", value),
-            style = MaterialTheme.typography.titleLarge.copy(
-                fontWeight = FontWeight.Black,
-                fontFamily = FontFamily.Monospace
-            ),
-            color = color
-        )
+        Text(text = label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = String.format("%.1f°", value),
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = color
+            )
+            if (abs(value) < 0.5f) {
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
+            }
+        }
     }
 }

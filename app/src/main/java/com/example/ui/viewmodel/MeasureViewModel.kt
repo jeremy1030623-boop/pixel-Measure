@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.*
 
@@ -46,9 +47,42 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     private val _arTrackingState = MutableStateFlow(TrackingState.STOPPED)
     val arTrackingState: StateFlow<TrackingState> = _arTrackingState.asStateFlow()
     
+    private val _arPointCloud = MutableStateFlow<FloatArray?>(null)
+    val arPointCloud: StateFlow<FloatArray?> = _arPointCloud.asStateFlow()
+
+    private val _arPlanes = mutableStateListOf<Plane>()
+    val arPlanes: List<Plane> get() = _arPlanes
+
+    private val _viewMatrix = MutableStateFlow(FloatArray(16))
+    val viewMatrix: StateFlow<FloatArray> = _viewMatrix.asStateFlow()
+
+    private val _projectionMatrix = MutableStateFlow(FloatArray(16))
+    val projectionMatrix: StateFlow<FloatArray> = _projectionMatrix.asStateFlow()
+
     fun updateArFrame(frame: Frame) {
         latestFrame = frame
         _arTrackingState.value = frame.camera.trackingState
+        
+        // Update matrices
+        val camera = frame.camera
+        camera.getViewMatrix(_viewMatrix.value, 0)
+        camera.getProjectionMatrix(_projectionMatrix.value, 0, 0.1f, 100.0f)
+        
+        // Update Point Cloud
+        try {
+            val pointCloud = frame.acquirePointCloud()
+            val points = FloatArray(pointCloud.points.remaining())
+            pointCloud.points.get(points)
+            _arPointCloud.value = points
+            pointCloud.release()
+        } catch (e: Exception) {}
+        
+        // Update Planes
+        val allPlanes = arSession?.getAllTrackables(Plane::class.java)
+        if (allPlanes != null) {
+            _arPlanes.clear()
+            _arPlanes.addAll(allPlanes.filter { it.trackingState == TrackingState.TRACKING })
+        }
     }
 
     // Saved database records
@@ -146,6 +180,9 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun calibrateSensors() {
+        // If we calibrate, unfreeze for 0.5s to capture new zero
+        _isLevelFrozen.value = false
+        
         // Get the current values to use as the new zero-reference
         // Since _pitch etc are already calibrated, we add back the old offset to get the raw value
         val rawPitch = _pitch.value + _pitchOffset.value
@@ -160,6 +197,13 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         _pitch.value = 0f
         _roll.value = 0f
         _yaw.value = 0f
+        
+        viewModelScope.launch {
+            delay(500)
+            if (_currentMode.value == 2) {
+                _isLevelFrozen.value = true
+            }
+        }
 
         prefs.edit().apply {
             putFloat("pitch_offset", _pitchOffset.value)
@@ -213,9 +257,23 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     private var hasRotationVector = false
     private var hasGravity = false
 
+    private val _isLevelFrozen = MutableStateFlow(false)
+    val isLevelFrozen: StateFlow<Boolean> = _isLevelFrozen.asStateFlow()
+
     fun setMode(mode: Int) {
         _currentMode.value = mode
         if (mode != 3) _aiResult.value = null
+        
+        // Specific requirement: Surface level only moves for 0.5s then freezes
+        if (mode == 2) {
+            _isLevelFrozen.value = false
+            viewModelScope.launch {
+                delay(500)
+                _isLevelFrozen.value = true
+            }
+        } else {
+            _isLevelFrozen.value = false
+        }
     }
 
     // AI Distance Estimation (Real via Gemini)
@@ -596,6 +654,9 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun processRotationMatrix(matrix: FloatArray) {
+        // If surface level is frozen, skip updates
+        if (_currentMode.value == 2 && _isLevelFrozen.value) return
+        
         SensorManager.getOrientation(matrix, orientationAngles)
         
         // azimuth (yaw)

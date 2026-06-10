@@ -30,6 +30,8 @@ import androidx.compose.ui.geometry.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -78,6 +80,10 @@ fun CameraViewComponent(
     val arCoreState by viewModel.arCoreState.collectAsState()
     val arCoreActive by viewModel.arCoreActive.collectAsState()
     val arTrackingState by viewModel.arTrackingState.collectAsState()
+    val arPointCloud by viewModel.arPointCloud.collectAsState()
+    val viewMatrix by viewModel.viewMatrix.collectAsState()
+    val projectionMatrix by viewModel.projectionMatrix.collectAsState()
+    val arPlanes = viewModel.arPlanes
     
     val activePoints = viewModel.capturedPoints
 
@@ -310,6 +316,16 @@ fun CameraViewComponent(
 
                 // Project 3D points relative to camera rotation pitch & yaw onto 2D screen coordinates
                 fun projectPoint(p: Point3D): Offset? {
+                    // Try ARCore precision projection if tracked
+                    if (arTrackingState == com.google.ar.core.TrackingState.TRACKING) {
+                        val offset = com.example.logic.ARProjectionUtils.projectPoint(
+                            p.x.toFloat(), p.y.toFloat(), p.z.toFloat(),
+                            viewMatrix, projectionMatrix, w, h
+                        )
+                        if (offset != null) return offset
+                    }
+
+                    // Fallback to orientation-based projection for non-AR or lost tracking
                     // Yaw difference mapping with wrapping boundaries
                     var dy = (p.yaw - yaw).toDouble()
                     while (dy < -180.0) dy += 360.0
@@ -519,9 +535,35 @@ fun CameraViewComponent(
                     }
                 }
 
-                // 2.2 Beautiful simulated active ARCore point-cloud tracking dots
-                if (arCoreActive) {
-                    val arPoints = listOf(
+                // 2.2 Beautiful real ARCore point-cloud tracking dots
+                if (arCoreActive && arTrackingState == com.google.ar.core.TrackingState.TRACKING) {
+                    arPointCloud?.let { points ->
+                        val stride = 4 // x, y, z, confidence
+                        for (i in 0 until points.size step stride) {
+                            val px = points[i]
+                            val py = points[i + 1]
+                            val pz = points[i + 2]
+                            val confidence = points[i + 3]
+                            
+                            if (confidence > 0.3f) {
+                                val screenOffset = com.example.logic.ARProjectionUtils.projectPoint(
+                                    px, py, pz,
+                                    viewMatrix, projectionMatrix, w, h
+                                )
+                                
+                                if (screenOffset != null) {
+                                    drawCircle(
+                                        color = colorPrimary.copy(alpha = 0.4f * confidence),
+                                        radius = 2f,
+                                        center = screenOffset
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else if (arCoreActive) {
+                    // Fallback simulation if tracking not ready/available
+                    val arPointsSimulation = listOf(
                         Pair(7f, -12f),
                         Pair(-14f, 6f),
                         Pair(18f, 14f),
@@ -531,7 +573,7 @@ fun CameraViewComponent(
                         Pair(10f, 25f),
                         Pair(-25f, 15f)
                     )
-                    arPoints.forEach { (offsetYaw, offsetPitch) ->
+                    arPointsSimulation.forEach { (offsetYaw, offsetPitch) ->
                         // Calculate projected coordinate for the point
                         val targetYaw = (yaw + offsetYaw + 360f) % 360f
                         val targetPitch = pitch + offsetPitch
@@ -567,6 +609,56 @@ fun CameraViewComponent(
                         }
                     }
                 }
+
+                // 2.3 AR Planes visualization
+                if (arCoreActive && arTrackingState == com.google.ar.core.TrackingState.TRACKING) {
+                    arPlanes.forEach { plane ->
+                        val boundary = plane.polygon
+                        for (i in 0 until boundary.limit() step 2) {
+                            val localX = boundary.get(i)
+                            val localZ = boundary.get(i + 1)
+                            
+                            // Convert local plane coords to world coords
+                            val pose = plane.centerPose
+                            val worldPos = pose.transformPoint(floatArrayOf(localX, 0f, localZ))
+                            
+                            val screenOffset = com.example.logic.ARProjectionUtils.projectPoint(
+                                worldPos[0], worldPos[1], worldPos[2],
+                                viewMatrix, projectionMatrix, w, h
+                            )
+                            
+                            if (screenOffset != null) {
+                                drawCircle(
+                                    color = colorTertiary.copy(alpha = 0.3f),
+                                    radius = 3f,
+                                    center = screenOffset
+                                )
+                                
+                                // Connect to next point in polygon
+                                val nextIdx = if (i + 2 < boundary.limit()) i + 2 else 0
+                                val nextWorldPos = pose.transformPoint(floatArrayOf(boundary.get(nextIdx), 0f, boundary.get(nextIdx + 1)))
+                                val nextScreenOffset = com.example.logic.ARProjectionUtils.projectPoint(
+                                    nextWorldPos[0], nextWorldPos[1], nextWorldPos[2],
+                                    viewMatrix, projectionMatrix, w, h
+                                )
+                                
+                                if (nextScreenOffset != null) {
+                                    drawLine(
+                                        color = colorTertiary.copy(alpha = 0.2f),
+                                        start = screenOffset,
+                                        end = nextScreenOffset,
+                                        strokeWidth = 2f
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // AR Calibration Overlay
+            if (arCoreActive && arTrackingState != com.google.ar.core.TrackingState.TRACKING) {
+                ARCalibrationOverlay(colorPrimary)
             }
 
             // 3. Central Target Crosshair Viewport Overlay
@@ -982,5 +1074,127 @@ fun CameraViewComponent(
                 }
             }
         )
+    }
+}
+
+@Composable
+fun ARCalibrationOverlay(accentColor: Color) {
+    val infiniteTransition = rememberInfiniteTransition(label = "CalibAnim")
+    
+    // Animation for the phone icon moving side to side
+    val phoneTranslation by infiniteTransition.animateFloat(
+        initialValue = -50f,
+        targetValue = 50f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "phoneX"
+    )
+
+    // Animation for the scanning arc alpha
+    val arcAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(750, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "arcAlpha"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.3f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Canvas(modifier = Modifier.size(200.dp)) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                
+                // 1. Draw scanning fan/arc to represent FOV
+                drawArc(
+                    color = accentColor.copy(alpha = arcAlpha * 0.3f),
+                    startAngle = 210f,
+                    sweepAngle = 120f,
+                    useCenter = true,
+                    topLeft = Offset(cx - 80f, cy - 100f),
+                    size = Size(160f, 160f)
+                )
+
+                // 2. Draw animated "Phone" icon
+                withTransform({
+                    translate(phoneTranslation * 1.5f, 0f)
+                    rotate(phoneTranslation / 4f, Offset(cx, cy))
+                }) {
+                    // Phone body
+                    drawRoundRect(
+                        color = Color.White,
+                        topLeft = Offset(cx - 30f, cy - 55f),
+                        size = Size(60f, 110f),
+                        cornerRadius = CornerRadius(8f, 8f)
+                    )
+                    // Screen area
+                    drawRect(
+                        color = accentColor.copy(alpha = 0.1f),
+                        topLeft = Offset(cx - 24f, cy - 45f),
+                        size = Size(48f, 75f)
+                    )
+                    // Camera lens
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.6f),
+                        radius = 4f,
+                        center = Offset(cx, cy - 50f)
+                    )
+                    // Home indicator
+                    drawLine(
+                        color = Color.Black.copy(alpha = 0.3f),
+                        start = Offset(cx - 10f, cy + 45f),
+                        end = Offset(cx + 10f, cy + 45f),
+                        strokeWidth = 2f,
+                        cap = StrokeCap.Round
+                    )
+                }
+
+                // 3. Draw footprints/target area on "ground"
+                drawOval(
+                    color = Color.White.copy(alpha = 0.2f),
+                    topLeft = Offset(cx - 60f, cy + 70f),
+                    size = Size(120f, 30f)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Surface(
+                color = Color.Black.copy(alpha = 0.7f),
+                shape = RoundedCornerShape(16.dp),
+                shadowElevation = 8.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "正在初始化 AR 環境",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "請緩慢移動手機以掃描四周平面",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.8f),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
     }
 }

@@ -21,7 +21,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Height
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -282,21 +282,14 @@ fun CameraViewComponent(
                     }, androidx.core.content.ContextCompat.getMainExecutor(ctx))
                     previewView
                 },
-                modifier = Modifier
+                    modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
                         detectTapGestures { offset ->
                             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                             
-                            val density = context.resources.displayMetrics.density
-                            val screenWidth = context.resources.displayMetrics.widthPixels.toFloat() / density
-                            val screenHeight = context.resources.displayMetrics.heightPixels.toFloat() / density
-                            
-                            // Normal native point addition
-                            viewModel.addPoint(offset.x / density, offset.y / density)
-                            
-                            // Optional: If Web API (Gemini) is active, trigger an AI estimation
-                            // viewModel.estimateDistanceByAi()
+                            // Using pixel coordinates directly for ARCore hitTest
+                            viewModel.addPoint(offset.x, offset.y)
                         }
                     }
             )
@@ -661,57 +654,90 @@ fun CameraViewComponent(
                 ARCalibrationOverlay(colorPrimary)
             }
 
-            // 3. Central Target Crosshair Viewport Overlay
+    // 3. Central Target Crosshair Viewport Overlay
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
+                val isLeveled = abs(roll) < 1.0f
+                val animatedRoll by animateFloatAsState(
+                    targetValue = roll,
+                    animationSpec = spring(stiffness = Spring.StiffnessLow),
+                    label = "rollAnim"
+                )
+
+                val targetPulse by infiniteTransition.animateFloat(
+                    initialValue = 1f,
+                    targetValue = 1.15f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(800, easing = FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "targetPulse"
+                )
+
                 Canvas(modifier = Modifier.size(100.dp)) {
                     val w = size.width
                     val h = size.height
-                    val isLeveled = abs(roll) < 1.0f
+                    val currentAccent = if (isLeveled) colorPrimary else colorTertiary
+                    val accentAlpha = if (isLeveled) 1.0f else 0.7f
 
-                    // Outer targeting ring
-                    drawCircle(
-                        color = if (isLeveled) colorPrimary else colorTertiary,
-                        radius = 28f,
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
-                    )
+                    withTransform({
+                        if (isLeveled) {
+                            scale(targetPulse, targetPulse)
+                        }
+                    }) {
+                        // Outer targeting ring
+                        drawCircle(
+                            color = currentAccent.copy(alpha = accentAlpha),
+                            radius = 28f,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
+                        )
 
-                    // Central precise crosshair reticle dot
-                    drawCircle(
-                        color = if (isLeveled) colorPrimary else colorTertiary,
-                        radius = 4f,
-                        center = Offset(w / 2f, h / 2f)
-                    )
+                        // Central precise crosshair reticle dot
+                        drawCircle(
+                            color = currentAccent.copy(alpha = accentAlpha),
+                            radius = 4f,
+                            center = Offset(w / 2f, h / 2f)
+                        )
+                    }
 
-                    // Quick mechanical level balance lines
-                    val angleOffset = Math.toRadians(roll.toDouble())
+                    // Mechanical level balance lines with rotation animation
+                    val angleOffset = Math.toRadians(animatedRoll.toDouble())
                     val len = 16f
                     val dx = cos(angleOffset).toFloat() * len
                     val dy = sin(angleOffset).toFloat() * len
 
                     // Left wing balance path
                     drawLine(
-                        color = if (isLeveled) colorPrimary else colorTertiary,
+                        color = currentAccent.copy(alpha = if (isLeveled) 1f else 0.5f),
                         start = Offset(w/2f - 45f - dx, h/2f - dy),
                         end = Offset(w/2f - 24f - dx, h/2f - dy),
-                        strokeWidth = 3f
+                        strokeWidth = if (isLeveled) 5f else 3f,
+                        cap = StrokeCap.Round
                     )
                     // Right wing balance path
                     drawLine(
-                        color = if (isLeveled) colorPrimary else colorTertiary,
+                        color = currentAccent.copy(alpha = if (isLeveled) 1f else 0.5f),
                         start = Offset(w/2f + 24f + dx, h/2f + dy),
                         end = Offset(w/2f + 45f + dx, h/2f + dy),
-                        strokeWidth = 3f
+                        strokeWidth = if (isLeveled) 5f else 3f,
+                        cap = StrokeCap.Round
                     )
                 }
             }
 
-            // 4. Live Floating Header HUD Info Panels (Simplified)
+            // 4. Live Floating Header HUD Info Panels
+            val hudOffset by animateDpAsState(
+                targetValue = if (cameraPermissionState.status.isGranted) 0.dp else (-100).dp,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy),
+                label = "hudEntry"
+            )
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .offset(y = hudOffset)
                     .padding(top = 40.dp)
             ) {
                 Row(
@@ -750,6 +776,14 @@ fun CameraViewComponent(
 
                     // Large Live Value
                     Column(horizontalAlignment = Alignment.End) {
+                        if (activePoints.size >= 2) {
+                            Text(
+                                text = "總長: ${viewModel.formatLengthValue(viewModel.totalPathDistance)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = colorTertiary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                         Text(
                             text = viewModel.getLiveDistanceText(),
                             style = MaterialTheme.typography.displaySmall,
@@ -797,10 +831,17 @@ fun CameraViewComponent(
             }
 
             // 5. Floating Bottom Controller Hud Panel
+            val bottomPanelOffset by animateDpAsState(
+                targetValue = if (cameraPermissionState.status.isGranted) 0.dp else 150.dp,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy),
+                label = "bottomEntry"
+            )
+
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
+                    .offset(y = bottomPanelOffset)
                     .padding(bottom = 36.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -873,19 +914,14 @@ fun CameraViewComponent(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Left Spacer for Balance (Removed Settings)
+                    // Left column: Info or empty
                     Spacer(modifier = Modifier.size(54.dp))
 
                     // Main Action (+)
                     Surface(
                         onClick = { 
-                            // Tactile interaction feedback
                             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                            // Pass screen size for hit testing in AR mode
-                            val density = context.resources.displayMetrics.density
-                            val screenWidth = context.resources.displayMetrics.widthPixels.toFloat() / density
-                            val screenHeight = context.resources.displayMetrics.heightPixels.toFloat() / density
-                            viewModel.addPoint(screenWidth, screenHeight) 
+                            viewModel.addPoint() 
                         },
                         color = colorPrimary,
                         shape = CircleShape,
@@ -897,28 +933,42 @@ fun CameraViewComponent(
                         }
                     }
 
-                    // Right column: Clear/Save Action
-                    Surface(
-                        onClick = {
-                            if (activePoints.isNotEmpty()) {
-                                saveTitleTextState = ""
-                                saveNotesTextState = ""
-                                showSaveMeasurementDialog = true
-                            } else {
-                                onShowHistoryClick()
+                    // Right column: Undo / Clear / Save Action
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (activePoints.isNotEmpty()) {
+                            IconButton(
+                                onClick = { viewModel.removeLastPoint() },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .background(colorSurface.copy(alpha = 0.6f), CircleShape)
+                            ) {
+                                Icon(Icons.Default.Refresh, "撤銷", tint = colorOnSurface)
                             }
-                        },
-                        color = if (activePoints.isNotEmpty()) colorTertiary else colorSurface.copy(alpha = 0.6f),
-                        shape = CircleShape,
-                        modifier = Modifier.size(54.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                if (activePoints.isNotEmpty()) Icons.Default.Save else Icons.Default.History,
-                                null,
-                                tint = if (activePoints.isNotEmpty()) MaterialTheme.colorScheme.onTertiary else colorOnSurface,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                        }
+                        
+                        Surface(
+                            onClick = {
+                                if (activePoints.isNotEmpty()) {
+                                    saveTitleTextState = ""
+                                    saveNotesTextState = ""
+                                    showSaveMeasurementDialog = true
+                                } else {
+                                    onShowHistoryClick()
+                                }
+                            },
+                            color = if (activePoints.isNotEmpty()) colorTertiary else colorSurface.copy(alpha = 0.6f),
+                            shape = CircleShape,
+                            modifier = Modifier.size(54.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    if (activePoints.isNotEmpty()) Icons.Default.Save else Icons.Default.History,
+                                    null,
+                                    tint = if (activePoints.isNotEmpty()) MaterialTheme.colorScheme.onTertiary else colorOnSurface,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                         }
                     }
                 }

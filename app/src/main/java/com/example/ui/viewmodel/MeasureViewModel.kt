@@ -21,11 +21,16 @@ import com.google.ar.core.Frame
 import com.google.ar.core.Plane
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.*
@@ -234,6 +239,17 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     // Current camera measurement points clicked
     val capturedPoints = mutableStateListOf<Point3D>()
 
+    // Total length of the path formed by captured points
+    val totalPathDistance: Double
+        get() {
+            if (capturedPoints.size < 2) return 0.0
+            var sum = 0.0
+            for (i in 0 until capturedPoints.size - 1) {
+                sum += measureEngine.calculateDistance(capturedPoints[i], capturedPoints[i+1])
+            }
+            return sum
+        }
+
     // Pocket Ruler Callipers (State in DP offset from center)
     private val _rulerCaliperLeft = MutableStateFlow(-120.0f)
     val rulerCaliperLeft: StateFlow<Float> = _rulerCaliperLeft.asStateFlow()
@@ -328,8 +344,8 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         _rulerCaliperRight.value = right
     }
 
-    // Capture standard point
-    fun addPoint(screenWidth: Float? = null, screenHeight: Float? = null) {
+    // Capture standard point (Accepts specific hit coordinates in pixels)
+    fun addPoint(pixelX: Float? = null, pixelY: Float? = null) {
         val currentPitch = _pitch.value
         val currentYaw = _yaw.value
         val camHeightM = cameraHeightCm.value / 100.0
@@ -339,11 +355,17 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         if (_arCoreActive.value && _arCoreState.value == "SUPPORTED_INSTALLED") {
             val session = arSession
             val frame = latestFrame
-            if (session != null && frame != null && screenWidth != null && screenHeight != null) {
-                val hits = frame.hitTest(screenWidth / 2f, screenHeight / 2f)
+            
+            if (session != null && frame != null) {
+                // If coordinates are provided, use them; otherwise default to center of frame
+                val hX = pixelX ?: (frame.camera.imageIntrinsics.imageDimensions[0] / 2f)
+                val hY = pixelY ?: (frame.camera.imageIntrinsics.imageDimensions[1] / 2f)
+                
+                val hits = frame.hitTest(hX, hY)
                 val hit = hits.firstOrNull { 
                     val trackable = it.trackable
-                    trackable is Plane && trackable.isPoseInPolygon(it.hitPose)
+                    (trackable is Plane && trackable.isPoseInPolygon(it.hitPose)) || 
+                    (it.trackable is com.google.ar.core.Point)
                 }
                 
                 if (hit != null) {
@@ -386,6 +408,15 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         }
         
         capturedPoints.add(point)
+    }
+
+    fun removeLastPoint() {
+        if (capturedPoints.isNotEmpty()) {
+            capturedPoints.removeAt(capturedPoints.size - 1)
+            if (capturedPoints.isEmpty()) {
+                _lockedBaseDistance.value = null
+            }
+        }
     }
 
     fun clearActivePoints() {

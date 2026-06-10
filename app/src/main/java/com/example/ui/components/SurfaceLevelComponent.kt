@@ -52,6 +52,38 @@ fun SurfaceLevelComponent(
         }
     }
 
+    val infiniteTransition = rememberInfiniteTransition(label = "SurfaceLevelAnim")
+    
+    val pulseSize by infiniteTransition.animateFloat(
+        initialValue = 0.8f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "pulseSize"
+    )
+    
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.5f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "pulseAlpha"
+    )
+
+    val gridAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.05f,
+        targetValue = 0.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "gridAlpha"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -64,15 +96,23 @@ fun SurfaceLevelComponent(
             val cy = size.height / 2f
             val baseRadius = min(size.width, size.height) * 0.35f
             
+            if (isPerfectLevel) {
+                drawCircle(
+                    color = displayColor.copy(alpha = pulseAlpha),
+                    radius = baseRadius * pulseSize,
+                    center = Offset(cx, cy)
+                )
+            }
+
             // 十字準星
             drawLine(
-                color = Color.White.copy(alpha = 0.1f),
+                color = Color.White.copy(alpha = gridAlpha),
                 start = Offset(0f, cy),
                 end = Offset(size.width, cy),
                 strokeWidth = 2f
             )
             drawLine(
-                color = Color.White.copy(alpha = 0.1f),
+                color = Color.White.copy(alpha = gridAlpha),
                 start = Offset(cx, 0f),
                 end = Offset(cx, size.height),
                 strokeWidth = 2f
@@ -99,24 +139,38 @@ fun SurfaceLevelComponent(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text(
-                text = String.format("%.1f°", roll),
-                style = MaterialTheme.typography.displayLarge.copy(
-                    fontWeight = FontWeight.Black,
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = (-2).sp
-                ),
-                color = displayColor
-            )
+            AnimatedContent(
+                targetState = roll,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(150)) togetherWith fadeOut(animationSpec = tween(150))
+                },
+                label = "rollText"
+            ) { targetRoll ->
+                Text(
+                    text = String.format("%.1f°", targetRoll),
+                    style = MaterialTheme.typography.displayLarge.copy(
+                        fontWeight = FontWeight.Black,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = (-2).sp
+                    ),
+                    color = displayColor
+                )
+            }
             
             Spacer(modifier = Modifier.height(8.dp))
             
-            Text(
-                text = if (isPerfectLevel) "已校準 (0.0° LOCKED)" else "調整水平線以歸零",
-                style = MaterialTheme.typography.labelLarge,
-                color = if (isPerfectLevel) displayColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                fontWeight = FontWeight.Bold
-            )
+            AnimatedVisibility(
+                visible = true,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Text(
+                    text = if (isPerfectLevel) "已校準 (0.0° LOCKED)" else "調整水平線以歸零",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (isPerfectLevel) displayColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
 
         // 極簡水平線元件
@@ -148,11 +202,16 @@ fun SurfaceLevelComponent(
             }
         }
         
-        if (isPerfectLevel) {
+        AnimatedVisibility(
+            visible = isPerfectLevel,
+            enter = scaleIn(initialScale = 0.8f) + fadeIn(),
+            exit = scaleOut(targetScale = 0.8f) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = 100.dp)
+        ) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.Center)
-                    .offset(y = 100.dp)
                     .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
                     .padding(horizontal = 12.dp, vertical = 4.dp)
             ) {

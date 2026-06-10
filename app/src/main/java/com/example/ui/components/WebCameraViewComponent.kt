@@ -5,6 +5,8 @@ import android.annotation.SuppressLint
 import android.net.Uri
 import android.webkit.*
 import android.view.ViewGroup
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -203,38 +205,74 @@ fun WebCameraViewComponent(
             }
         }
 
-        Box(modifier = Modifier.fillMaxSize()) {
-            AndroidView(
-                factory = { webView },
-                update = { /* No-op, initialized in factory */ },
-                modifier = Modifier.fillMaxSize()
-            )
+    Box(modifier = Modifier.fillMaxSize()) {
+        AndroidView(
+            factory = { webView },
+            update = { /* No-op, initialized in factory */ },
+            modifier = Modifier.fillMaxSize()
+        )
 
-            // AI Status HUD Overlay
-            Column(
+        // Scanning Line Effect
+        val infiniteTransition = rememberInfiniteTransition(label = "Scanning")
+        val scanProgress by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(4000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "scan"
+        )
+        
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val scanY = maxHeight * scanProgress
+            Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 120.dp)
-                    .padding(horizontal = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .offset(y = scanY)
+                    .background(
+                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), Color.Transparent)
+                        )
+                    )
+            )
+        }
+
+        // AI Status HUD Overlay
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 120.dp)
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            AnimatedVisibility(
+                visible = isAiProcessing,
+                enter = fadeIn() + slideInVertically { it / 2 },
+                exit = fadeOut() + slideOutVertically { it / 2 }
             ) {
-                if (isAiProcessing) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)),
-                        shape = RoundedCornerShape(12.dp)
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text("AI 正在分析深度空間中...", style = MaterialTheme.typography.labelSmall)
-                        }
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("AI 正在分析深度空間中...", style = MaterialTheme.typography.labelSmall)
                     }
                 }
+            }
 
-                aiResult?.let { result ->
+            AnimatedVisibility(
+                visible = aiResult != null,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Spacer(modifier = Modifier.height(12.dp))
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -247,7 +285,7 @@ fun WebCameraViewComponent(
                         ) {
                             Text("AI 測量結果", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                             Text(
-                                text = result,
+                                text = aiResult ?: "",
                                 style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.Black,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -257,5 +295,6 @@ fun WebCameraViewComponent(
                 }
             }
         }
+    }
     }
 }

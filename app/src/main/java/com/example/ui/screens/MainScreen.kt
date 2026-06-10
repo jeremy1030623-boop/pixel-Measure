@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,6 +16,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -43,18 +46,26 @@ fun MainScreen(viewModel: MeasureViewModel) {
     val roll by viewModel.roll.collectAsState()
 
     var showHistorySheet by remember { mutableStateOf(false) }
+    var splashVisible by remember { mutableStateOf(true) }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        val isWideScreen = maxWidth >= 680.dp
+    val configuration = LocalConfiguration.current
+    val isWideScreen = configuration.screenWidthDp >= 680
 
-        Row(modifier = Modifier.fillMaxSize()) {
-            // Main tool container panel
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(2200)
+        splashVisible = false
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                // Main tool container panel
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
                 // Top Global Header Bar
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
@@ -238,8 +249,9 @@ fun MainScreen(viewModel: MeasureViewModel) {
                 }
             }
         }
+    }
 
-        // Phone standard Bottom sheet overlay
+    // Phone standard Bottom sheet overlay
         if (showHistorySheet && !isWideScreen) {
             ModalBottomSheet(
                 onDismissRequest = { showHistorySheet = false },
@@ -259,6 +271,72 @@ fun MainScreen(viewModel: MeasureViewModel) {
                     )
                 }
             }
+        }
+
+        // Animated Splash Screen Overlay
+        AnimatedVisibility(
+            visible = splashVisible,
+            enter = fadeIn(),
+            exit = fadeOut(animationSpec = tween(800)) + scaleOut(targetScale = 1.1f, animationSpec = tween(800))
+        ) {
+            SplashScreen()
+        }
+    }
+}
+
+@Composable
+fun SplashScreen() {
+    val infiniteTransition = rememberInfiniteTransition(label = "SplashIcon")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.95f,
+        targetValue = 1.05f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "iconScale"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.primary),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Surface(
+                modifier = Modifier
+                    .size(120.dp)
+                    .graphicsLayer(scaleX = scale, scaleY = scale),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.onPrimary,
+                shadowElevation = 12.dp
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.Straighten,
+                        contentDescription = null,
+                        modifier = Modifier.size(60.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Text(
+                "AR 測量工具",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onPrimary,
+                letterSpacing = 2.sp
+            )
+            
+            Text(
+                "全能空間尺與水平儀",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
+            )
         }
     }
 }

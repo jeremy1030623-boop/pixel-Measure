@@ -1,5 +1,7 @@
 package com.example.ui.components
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -14,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
@@ -86,22 +89,45 @@ fun RulerComponent(
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = String.format("%.2f %s", displayValue, selectedUnit),
-                        style = MaterialTheme.typography.displayLarge.copy(
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Black
-                        ),
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    
+                    AnimatedContent(
+                        targetState = displayValue,
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(200)) togetherWith fadeOut(animationSpec = tween(200))
+                        },
+                        label = "valueAnim"
+                    ) { targetValue ->
+                        Text(
+                            text = String.format("%.2f %s", targetValue, selectedUnit),
+                            style = MaterialTheme.typography.displayLarge.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Black
+                            ),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(8.dp))
+                    
+                    val infiniteTransition = rememberInfiniteTransition(label = "SavePulse")
+                    val pulseScale by infiniteTransition.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 1.05f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1000, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "pulse"
+                    )
+
                     Button(
                         onClick = {
                             objectNameInput = "物品"
                             showSaveDialog = true
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.graphicsLayer(scaleX = pulseScale, scaleY = pulseScale)
                     ) {
                         Icon(Icons.Default.Save, contentDescription = "儲存")
                         Spacer(modifier = Modifier.width(8.dp))
@@ -111,10 +137,17 @@ fun RulerComponent(
             }
 
             // Draggable ruler board
+            val entryScale by animateFloatAsState(
+                targetValue = 1f,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy),
+                label = "entryScale"
+            )
+
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    .graphicsLayer(scaleX = entryScale, scaleY = entryScale)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(16.dp))
                     .pointerInput(density) {
                         detectDragGestures(

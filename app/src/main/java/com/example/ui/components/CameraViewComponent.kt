@@ -806,7 +806,7 @@ fun CameraViewComponent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .offset(y = hudOffset)
-                    .padding(top = 40.dp)
+                    .statusBarsPadding()
             ) {
                 Row(
                     modifier = Modifier

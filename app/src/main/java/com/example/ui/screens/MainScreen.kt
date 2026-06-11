@@ -28,6 +28,7 @@ import com.example.ui.components.CameraViewComponent
 import com.example.ui.components.RulerComponent
 import com.example.ui.components.SurfaceLevelComponent
 import com.example.ui.components.OnboardingTutorialOverlay
+import com.example.ui.components.InitialWelcomeScreen
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MeasureViewModel
 import com.example.ui.viewmodel.Point3D
@@ -43,6 +44,7 @@ fun MainScreen(viewModel: MeasureViewModel) {
     val savedRecords by viewModel.savedRecords.collectAsState()
     val vibrateOnAlignment by viewModel.vibrateOnAlignment.collectAsState()
     val isFirstTimeUser by viewModel.isFirstTimeUser.collectAsState()
+    val showSplashScreen by viewModel.showSplashScreen.collectAsState()
     
     val pitch by viewModel.pitch.collectAsState()
     val roll by viewModel.roll.collectAsState()
@@ -97,8 +99,8 @@ fun MainScreen(viewModel: MeasureViewModel) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                                            .padding(top = 24.dp),
+                                            .statusBarsPadding()
+                                            .padding(horizontal = 16.dp, vertical = 12.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -158,37 +160,29 @@ fun MainScreen(viewModel: MeasureViewModel) {
                                                 )
                                             }
  
-                                            Row(
+                                            // Non-interactive current unit pill
+                                            val context = androidx.compose.ui.platform.LocalContext.current
+                                            Box(
                                                 modifier = Modifier
-                                                    .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.medium)
-                                                    .padding(4.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                listOf("cm", "m", "in", "ft").forEach { unit ->
-                                                    val isSelected = selectedUnit == unit
-                                                    val animAlpha by animateFloatAsState(
-                                                        targetValue = if (isSelected) 1f else 0f,
-                                                        animationSpec = tween(durationMillis = 300),
-                                                        label = "unitAlpha"
+                                                    .background(
+                                                        MaterialTheme.colorScheme.primaryContainer,
+                                                        MaterialTheme.shapes.medium
                                                     )
-                                                    
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .graphicsLayer(alpha = 1f)
-                                                            .background(
-                                                                MaterialTheme.colorScheme.primary.copy(alpha = animAlpha),
-                                                                MaterialTheme.shapes.small
-                                                            )
-                                                            .clickable { viewModel.setUnit(unit) }
-                                                            .padding(horizontal = 10.dp, vertical = 6.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = unit,
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            fontWeight = FontWeight.Black,
-                                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                                                        )
+                                                    .clickable {
+                                                        android.widget.Toast.makeText(context, "請由「設定」中變更測量單位", android.widget.Toast.LENGTH_SHORT).show()
                                                     }
+                                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "單位: $selectedUnit",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        fontWeight = FontWeight.Black,
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                    )
                                                 }
                                             }
                                         }
@@ -315,8 +309,8 @@ fun MainScreen(viewModel: MeasureViewModel) {
                         .width(320.dp)
                         .fillMaxHeight()
                         .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .statusBarsPadding()
                         .padding(16.dp)
-                        .padding(top = 24.dp)
                 ) {
                     HistoryContentPane(
                         savedRecords = savedRecords,
@@ -370,7 +364,12 @@ fun MainScreen(viewModel: MeasureViewModel) {
             }
         }
 
-        if (isFirstTimeUser) {
+        if (showSplashScreen) {
+            InitialWelcomeScreen(
+                viewModel = viewModel,
+                onEnterApp = { viewModel.dismissSplashScreen() }
+            )
+        } else if (isFirstTimeUser) {
             OnboardingTutorialOverlay(
                 viewModel = viewModel,
                 onDismiss = { viewModel.setFirstTimeUser(false) }

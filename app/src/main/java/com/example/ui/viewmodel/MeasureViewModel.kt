@@ -141,6 +141,9 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     private val _isFirstTimeUser = MutableStateFlow(true)
     val isFirstTimeUser: StateFlow<Boolean> = _isFirstTimeUser.asStateFlow()
 
+    private val _showSplashScreen = MutableStateFlow(true)
+    val showSplashScreen: StateFlow<Boolean> = _showSplashScreen.asStateFlow()
+
     // 測量模式: 0 = 水平地面投影測量 (Ground Plane), 1 = 垂直高度測量 (Vertical Height Tool)
     private val _cameraMeasureSubMode = MutableStateFlow(0)
     val cameraMeasureSubMode: StateFlow<Int> = _cameraMeasureSubMode.asStateFlow()
@@ -384,6 +387,10 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     fun setFirstTimeUser(enabled: Boolean) {
         _isFirstTimeUser.value = enabled
         prefs.edit().putBoolean("is_first_time_user", enabled).apply()
+    }
+
+    fun dismissSplashScreen() {
+        _showSplashScreen.value = false
     }
 
     fun setCameraMeasureSubMode(subMode: Int) {

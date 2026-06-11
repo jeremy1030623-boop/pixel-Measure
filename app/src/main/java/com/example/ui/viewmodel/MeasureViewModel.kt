@@ -48,6 +48,10 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     val arSession: Session? get() = arCoreSessionHelper?.session
     
     private var latestFrame: Frame? = null
+
+    fun updateDisplayGeometry(rotation: Int, width: Int, height: Int) {
+        arCoreSessionHelper?.setDisplayGeometry(rotation, width, height)
+    }
     
     private val _arTrackingState = MutableStateFlow(TrackingState.STOPPED)
     val arTrackingState: StateFlow<TrackingState> = _arTrackingState.asStateFlow()
@@ -82,11 +86,28 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
             pointCloud.release()
         } catch (e: Exception) {}
         
-        // Update Planes
+        // Update Planes & Auto-calibrate Height
         val allPlanes = arSession?.getAllTrackables(Plane::class.java)
         if (allPlanes != null) {
             _arPlanes.clear()
-            _arPlanes.addAll(allPlanes.filter { it.trackingState == TrackingState.TRACKING })
+            val trackingPlanes = allPlanes.filter { it.trackingState == TrackingState.TRACKING }
+            _arPlanes.addAll(trackingPlanes)
+            
+            // Auto-calibration: detect ground plane to fix holding height
+            val groundPlane = trackingPlanes.firstOrNull { 
+                it.type == Plane.Type.HORIZONTAL_UPWARD_FACING && 
+                it.centerPose.ty() < frame.camera.pose.ty() // Must be below camera
+            }
+            
+            if (groundPlane != null) {
+                // Distance from camera Y to plane Y
+                val verticalDist = abs(frame.camera.pose.ty() - groundPlane.centerPose.ty())
+                if (verticalDist in 0.5..2.5) { // Safe range for human height
+                    val newHeightCm = (verticalDist * 100.0).toFloat()
+                    // Smooth update
+                    _cameraHeightCm.value = _cameraHeightCm.value * 0.95f + newHeightCm * 0.05f
+                }
+            }
         }
     }
 
@@ -99,20 +120,20 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         )
 
     // App state flows
-    private val _currentMode = MutableStateFlow(0) // 0: 相機 AR 測量, 1: 螢幕直尺, 2: 泡泡水平儀, 3: AI 智慧測量 (Web API)
+    private val _currentMode = MutableStateFlow(0) // 0: 相機 AR 測量, 1: 螢幕直尺, 2: 泡泡水平儀
     val currentMode: StateFlow<Int> = _currentMode.asStateFlow()
-
-    private val _aiResult = MutableStateFlow<String?>(null)
-    val aiResult: StateFlow<String?> = _aiResult.asStateFlow()
-
-    private val _isAiProcessing = MutableStateFlow(false)
-    val isAiProcessing: StateFlow<Boolean> = _isAiProcessing.asStateFlow()
 
     private val _selectedUnit = MutableStateFlow("cm") // "cm", "m", "in", "ft"
     val selectedUnit: StateFlow<String> = _selectedUnit.asStateFlow()
 
     private val _cameraHeightCm = MutableStateFlow(140f) // 預設持手機高度 140 公分
     val cameraHeightCm: StateFlow<Float> = _cameraHeightCm.asStateFlow()
+
+    private val _sensorAlpha = MutableStateFlow(0.2f)
+    val sensorAlpha: StateFlow<Float> = _sensorAlpha.asStateFlow()
+
+    private val _vibrateOnAlignment = MutableStateFlow(true)
+    val vibrateOnAlignment: StateFlow<Boolean> = _vibrateOnAlignment.asStateFlow()
 
     // 測量模式: 0 = 水平地面投影測量 (Ground Plane), 1 = 垂直高度測量 (Vertical Height Tool)
     private val _cameraMeasureSubMode = MutableStateFlow(0)
@@ -129,7 +150,30 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     private val _arCoreActive = MutableStateFlow(true) // Auto enable standard AR space positioning
     val arCoreActive: StateFlow<Boolean> = _arCoreActive.asStateFlow()
 
+    private fun isEmulator(): Boolean {
+        val brand = android.os.Build.BRAND
+        val device = android.os.Build.DEVICE
+        val model = android.os.Build.MODEL
+        val product = android.os.Build.PRODUCT
+        val hardware = android.os.Build.HARDWARE
+        val fingerprint = android.os.Build.FINGERPRINT
+        return brand.startsWith("generic") || 
+                device.startsWith("generic") || 
+                model.contains("google_sdk") || 
+                model.contains("Emulator") || 
+                model.contains("Android SDK built for x86") || 
+                product.contains("sdk_google") || 
+                hardware.contains("goldfish") || 
+                hardware.contains("ranchu") || 
+                fingerprint.startsWith("generic")
+    }
+
     fun checkArCoreSupport(context: Context) {
+        if (isEmulator()) {
+            _arCoreState.value = "UNSUPPORTED"
+            return
+        }
+
         if (arCoreSessionHelper == null) {
             arCoreSessionHelper = ArCoreSessionHelper(context)
         }
@@ -141,9 +185,12 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
                     _arCoreState.value = "CHECKING"
                 } else if (availability.isSupported) {
                     if (availability.name == "SUPPORTED_INSTALLED") {
-                        _arCoreState.value = "SUPPORTED_INSTALLED"
-                        // 如果支援且已安裝，則嘗試啟動 Session
-                        arCoreSessionHelper?.createSession()
+                        val session = arCoreSessionHelper?.createSession()
+                        if (session != null) {
+                            _arCoreState.value = "SUPPORTED_INSTALLED"
+                        } else {
+                            _arCoreState.value = "UNSUPPORTED"
+                        }
                     } else {
                         _arCoreState.value = "APK_NOT_INSTALLED"
                     }
@@ -166,6 +213,11 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         stopListening()
     }
 
+    fun destroyArCore() {
+        arCoreSessionHelper?.destroy()
+        arCoreSessionHelper = null
+    }
+
     fun setArCoreActive(active: Boolean) {
         _arCoreActive.value = active
     }
@@ -182,6 +234,12 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         _pitchOffset.value = prefs.getFloat("pitch_offset", 0f)
         _rollOffset.value = prefs.getFloat("roll_offset", 0f)
         _yawOffset.value = prefs.getFloat("yaw_offset", 0f)
+
+        // Load settings data
+        _selectedUnit.value = prefs.getString("selected_unit", "cm") ?: "cm"
+        _cameraHeightCm.value = prefs.getFloat("default_camera_height_cm", 140f)
+        _sensorAlpha.value = prefs.getFloat("sensor_alpha", 0.2f)
+        _vibrateOnAlignment.value = prefs.getBoolean("vibrate_on_alignment", true)
     }
 
     fun calibrateSensors() {
@@ -265,7 +323,6 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     private val processedRotationMatrix = FloatArray(9)
     private val orientationAngles = FloatArray(3)
     
-    private val sensorAlpha = 0.2f // Base smoothing
     private val fastAlpha = 0.8f // Faster response when moving
     
     private var hasAccelerometer = false
@@ -278,7 +335,6 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
 
     fun setMode(mode: Int) {
         _currentMode.value = mode
-        if (mode != 3) _aiResult.value = null
         
         // Specific requirement: Surface level only moves for 0.5s then freezes
         if (mode == 2) {
@@ -292,46 +348,24 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    // AI Distance Estimation (Real via Gemini)
-    fun estimateDistanceByAi(base64Image: String? = null) {
-        viewModelScope.launch {
-            _isAiProcessing.value = true
-            try {
-                if (base64Image != null) {
-                    val apiKey = com.example.BuildConfig.GEMINI_API_KEY
-                    val prompt = "請估算圖中點擊位置物體的距離。請僅返回一個估計的數值與單位（例如：1.5 公尺），不要返回其他文字。"
-                    val request = com.example.logic.GenerateContentRequest(
-                        contents = listOf(
-                            com.example.logic.Content(
-                                parts = listOf(
-                                    com.example.logic.Part(text = prompt),
-                                    com.example.logic.Part(inlineData = com.example.logic.InlineData(mimeType = "image/jpeg", data = base64Image))
-                                )
-                            )
-                        ),
-                        generationConfig = com.example.logic.GenerationConfig(temperature = 0.4f)
-                    )
-                    val response = com.example.logic.RetrofitClient.service.generateContent(apiKey, request)
-                    val textResult = response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                    _aiResult.value = textResult ?: "無法估算距離"
-                } else {
-                    val d = getLiveDistanceText()
-                    _aiResult.value = "預估距離: $d"
-                }
-            } catch (e: Exception) {
-                _aiResult.value = "AI 服務暫時不可用: ${e.message}"
-            } finally {
-                _isAiProcessing.value = false
-            }
-        }
-    }
-
     fun setUnit(unit: String) {
         _selectedUnit.value = unit
+        prefs.edit().putString("selected_unit", unit).apply()
     }
 
     fun setCameraHeight(height: Float) {
         _cameraHeightCm.value = height
+        prefs.edit().putFloat("default_camera_height_cm", height).apply()
+    }
+
+    fun setSensorAlpha(alpha: Float) {
+        _sensorAlpha.value = alpha
+        prefs.edit().putFloat("sensor_alpha", alpha).apply()
+    }
+
+    fun setVibrateOnAlignment(enabled: Boolean) {
+        _vibrateOnAlignment.value = enabled
+        prefs.edit().putBoolean("vibrate_on_alignment", enabled).apply()
     }
 
     fun setCameraMeasureSubMode(subMode: Int) {
@@ -612,8 +646,9 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun applyLowPassFilter(input: FloatArray, output: FloatArray) {
+        val alpha = _sensorAlpha.value
         for (i in input.indices) {
-            output[i] = output[i] + sensorAlpha * (input[i] - output[i])
+            output[i] = output[i] + alpha * (input[i] - output[i])
         }
     }
 
@@ -696,21 +731,21 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         
         val newYaw = azimuth - _yawOffset.value
         val yawDiff = abs(newYaw - _yaw.value)
-        val yawAlpha = if (yawDiff > 10f) fastAlpha else sensorAlpha
+        val yawAlpha = if (yawDiff > 10f) fastAlpha else _sensorAlpha.value
         _yaw.value = _yaw.value + yawAlpha * (newYaw - _yaw.value)
 
         // pitch (around X axis)
         val newPitchRaw = Math.toDegrees(orientationAngles[1].toDouble()).toFloat()
         val calibratedPitch = newPitchRaw - _pitchOffset.value
         val pitchDiff = abs(calibratedPitch - _pitch.value)
-        val pitchAlpha = if (pitchDiff > 5f) fastAlpha else sensorAlpha
+        val pitchAlpha = if (pitchDiff > 5f) fastAlpha else _sensorAlpha.value
         _pitch.value = _pitch.value + pitchAlpha * (calibratedPitch - _pitch.value)
         
         // roll (around Y axis)
         val newRollRaw = Math.toDegrees(orientationAngles[2].toDouble()).toFloat()
         val calibratedRoll = newRollRaw - _rollOffset.value
         val rollDiff = abs(calibratedRoll - _roll.value)
-        val rollAlpha = if (rollDiff > 5f) fastAlpha else sensorAlpha
+        val rollAlpha = if (rollDiff > 5f) fastAlpha else _sensorAlpha.value
         _roll.value = _roll.value + rollAlpha * (calibratedRoll - _roll.value)
     }
 
@@ -724,13 +759,14 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
             val y = ay / norm
             val z = az / norm
 
+            val alpha = _sensorAlpha.value
             val computedPitch = -asin(y) * (180.0 / Math.PI)
             val calibratedPitch = computedPitch.toFloat() - _pitchOffset.value
-            _pitch.value = _pitch.value + sensorAlpha * (calibratedPitch - _pitch.value)
+            _pitch.value = _pitch.value + alpha * (calibratedPitch - _pitch.value)
 
             val computedRoll = atan2(x, z) * (180.0 / Math.PI)
             val calibratedRoll = computedRoll.toFloat() - _rollOffset.value
-            _roll.value = _roll.value + sensorAlpha * (calibratedRoll - _roll.value)
+            _roll.value = _roll.value + alpha * (calibratedRoll - _roll.value)
         }
     }
 

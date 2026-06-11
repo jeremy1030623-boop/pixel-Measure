@@ -32,6 +32,7 @@ import kotlin.math.*
 fun SurfaceLevelComponent(
     pitch: Float,  // 前後傾斜 (前後)
     roll: Float,   // 左右偏擺 (旋轉)
+    vibrateOnAlignment: Boolean = true,
     onCalibrate: () -> Unit = {},
     onReset: () -> Unit = {}
 ) {
@@ -47,42 +48,10 @@ fun SurfaceLevelComponent(
 
     // 當達到完美水平時觸發觸覺反饋
     LaunchedEffect(isPerfectLevel) {
-        if (isPerfectLevel) {
+        if (isPerfectLevel && vibrateOnAlignment) {
             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
         }
     }
-
-    val infiniteTransition = rememberInfiniteTransition(label = "SurfaceLevelAnim")
-    
-    val pulseSize by infiniteTransition.animateFloat(
-        initialValue = 0.8f,
-        targetValue = 1.2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = LinearOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "pulseSize"
-    )
-    
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.5f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = LinearOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "pulseAlpha"
-    )
-
-    val gridAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.05f,
-        targetValue = 0.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "gridAlpha"
-    )
 
     Box(
         modifier = Modifier
@@ -96,23 +65,15 @@ fun SurfaceLevelComponent(
             val cy = size.height / 2f
             val baseRadius = min(size.width, size.height) * 0.35f
             
-            if (isPerfectLevel) {
-                drawCircle(
-                    color = displayColor.copy(alpha = pulseAlpha),
-                    radius = baseRadius * pulseSize,
-                    center = Offset(cx, cy)
-                )
-            }
-
             // 十字準星
             drawLine(
-                color = Color.White.copy(alpha = gridAlpha),
+                color = Color.White.copy(alpha = 0.1f),
                 start = Offset(0f, cy),
                 end = Offset(size.width, cy),
                 strokeWidth = 2f
             )
             drawLine(
-                color = Color.White.copy(alpha = gridAlpha),
+                color = Color.White.copy(alpha = 0.1f),
                 start = Offset(cx, 0f),
                 end = Offset(cx, size.height),
                 strokeWidth = 2f
@@ -181,7 +142,7 @@ fun SurfaceLevelComponent(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 60.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f), RoundedCornerShape(24.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f), MaterialTheme.shapes.extraLarge)
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -212,7 +173,7 @@ fun SurfaceLevelComponent(
         ) {
             Box(
                 modifier = Modifier
-                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small)
                     .padding(horizontal = 12.dp, vertical = 4.dp)
             ) {
                 Text("已達到水平點", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)

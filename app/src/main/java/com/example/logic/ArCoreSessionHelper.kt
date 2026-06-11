@@ -1,7 +1,10 @@
 package com.example.logic
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.example.ui.viewmodel.Point3D
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.Config
@@ -15,10 +18,18 @@ class ArCoreSessionHelper(private val context: Context) {
     var session: Session? = null
         private set
 
+    private fun hasCameraPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    }
+
     /**
      * 初始化或恢復 ARCore Session
      */
     fun createSession(): Session? {
+        if (!hasCameraPermission()) {
+            Log.e("ArCoreSessionHelper", "Cannot create session without camera permission")
+            return null
+        }
         if (session != null) return session
 
         try {
@@ -57,11 +68,16 @@ class ArCoreSessionHelper(private val context: Context) {
     }
 
     fun resume() {
+        if (!hasCameraPermission()) return
         try {
             session?.resume()
         } catch (e: Exception) {
             Log.e("ArCoreSessionHelper", "Failed to resume session", e)
         }
+    }
+
+    fun setDisplayGeometry(rotation: Int, width: Int, height: Int) {
+        session?.setDisplayGeometry(rotation, width, height)
     }
 
     fun destroy() {

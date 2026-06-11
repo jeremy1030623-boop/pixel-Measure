@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -55,6 +57,7 @@ import com.example.ui.viewmodel.Point3D
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import kotlinx.coroutines.launch
 import kotlin.math.*
 
 @OptIn(ExperimentalPermissionsApi::class)
@@ -76,6 +79,7 @@ fun CameraViewComponent(
     val subMode by viewModel.cameraMeasureSubMode.collectAsState()
     val selectedUnit by viewModel.selectedUnit.collectAsState()
     val lockedBaseDist by viewModel.lockedBaseDistance.collectAsState()
+    val cameraHeightCm by viewModel.cameraHeightCm.collectAsState()
     
     val arCoreState by viewModel.arCoreState.collectAsState()
     val arCoreActive by viewModel.arCoreActive.collectAsState()
@@ -86,6 +90,10 @@ fun CameraViewComponent(
     val arPlanes = viewModel.arPlanes
     
     val activePoints = viewModel.capturedPoints
+    
+    // Manage dynamic ripple pings at capture coordinates
+    val pings = remember { mutableStateListOf<Pair<Offset, Animatable<Float, AnimationVector1D>>>() }
+    val coroutineScope = rememberCoroutineScope()
 
     val colorPrimary = MaterialTheme.colorScheme.primary
     val colorPrimaryContainer = MaterialTheme.colorScheme.primaryContainer
@@ -190,18 +198,33 @@ fun CameraViewComponent(
     // Start listening to physical sensors
     DisposableEffect(Unit) {
         viewModel.startListening()
-        viewModel.checkArCoreSupport(context)
         onDispose {
             // Do not stop listening here, as sensors are shared across modes
             // and managed by the global Activity/ViewModel lifecycle.
+            viewModel.destroyArCore()
+        }
+    }
+
+    // Start ARCore checking only after camera permission is granted
+    LaunchedEffect(cameraPermissionState.status.isGranted) {
+        if (cameraPermissionState.status.isGranted) {
+            viewModel.checkArCoreSupport(context)
         }
     }
 
     // CameraX Lifecycle management: ensuring unbindAll happens on dispose to prevent BufferQueue abandonment
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(Unit) {
         onDispose {
             try {
-                ProcessCameraProvider.getInstance(context).get().unbindAll()
+                val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+                cameraProviderFuture.addListener({
+                    try {
+                        val cameraProvider = cameraProviderFuture.get()
+                        cameraProvider.unbindAll()
+                    } catch (e: Exception) {
+                        Log.e("CameraViewComponent", "Error in onDispose camera listener unbind", e)
+                    }
+                }, androidx.core.content.ContextCompat.getMainExecutor(context))
             } catch (e: Exception) {
                 Log.e("CameraViewComponent", "Error unbinding camera on dispose", e)
             }
@@ -247,7 +270,7 @@ fun CameraViewComponent(
                 Button(
                     onClick = { cameraPermissionState.launchPermissionRequest() },
                     colors = ButtonDefaults.buttonColors(containerColor = colorPrimary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = MaterialTheme.shapes.medium
                 ) {
                     Text("授與相機權限")
                 }
@@ -282,16 +305,40 @@ fun CameraViewComponent(
                     }, androidx.core.content.ContextCompat.getMainExecutor(ctx))
                     previewView
                 },
-                    modifier = Modifier
+                modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
                         detectTapGestures { offset ->
                             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                             
+                            // Trigger persistent visual ping ripple
+                            val pingAnim = Animatable(0f)
+                            val pingPair = offset to pingAnim
+                            pings.add(pingPair)
+                            coroutineScope.launch {
+                                pingAnim.animateTo(1f, animationSpec = tween(600, easing = LinearOutSlowInEasing))
+                                pings.remove(pingPair)
+                            }
+                            
+                            // Sync geometry info before hitTest to ensure pixel-to-world accuracy
+                            val display = (context as android.app.Activity).windowManager.defaultDisplay
+                            viewModel.updateDisplayGeometry(display.rotation, view.width, view.height)
+
                             // Using pixel coordinates directly for ARCore hitTest
                             viewModel.addPoint(offset.x, offset.y)
                         }
                     }
+            )
+
+            // Dynamic dash offset for crawling animation
+            val dashOffset by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 60f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1500, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "DashAnim"
             )
 
             // 2. Hardware 3D Projected Points draw plane
@@ -300,6 +347,17 @@ fun CameraViewComponent(
                 val h = size.height
                 val cx = w / 2f
                 val cy = h / 2f
+
+                // Draw active pings
+                pings.forEach { (offset, anim) ->
+                    val progress = anim.value
+                    drawCircle(
+                        color = colorPrimary.copy(alpha = 1f - progress),
+                        radius = 120f * progress,
+                        center = offset,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 5f * (1f - progress))
+                    )
+                }
 
                 // Lens FOV estimation (Horizontal: 60deg, Vertical: 80deg)
                 val fovH = Math.toRadians(60.0)
@@ -350,12 +408,13 @@ fun CameraViewComponent(
                             end = p2,
                             strokeWidth = 12f
                         )
-                        // Precise solid line
+                        // Precise solid line with crawling dash pulse
                         drawLine(
                             color = colorTertiary,
                             start = p1,
                             end = p2,
-                            strokeWidth = 6f
+                            strokeWidth = 6f,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(30f, 15f), dashOffset)
                         )
                         // Label segment length precisely on screen
                         val midpoint = Offset((p1.x + p2.x) / 2f, (p1.y + p2.y) / 2f)
@@ -416,13 +475,13 @@ fun CameraViewComponent(
                             strokeWidth = 8f,
                             pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 15f), 0f)
                         )
-                        // Foreground bright dashes
+                        // Foreground bright dashes with animated crawling
                         drawLine(
                             color = colorPrimary,
                             start = lastProjected,
                             end = Offset(cx, cy),
                             strokeWidth = 4f,
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 15f), 0f)
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 15f), -dashOffset)
                         )
                     }
                 }
@@ -650,8 +709,33 @@ fun CameraViewComponent(
             }
 
             // AR Calibration Overlay
-            if (arCoreActive && arTrackingState != com.google.ar.core.TrackingState.TRACKING) {
-                ARCalibrationOverlay(colorPrimary)
+            AnimatedVisibility(
+                visible = arCoreActive && arTrackingState != com.google.ar.core.TrackingState.TRACKING,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.4f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = colorPrimary)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "正在掃描環境...",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "請緩慢左右移動手機，直到系統鎖定地面",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.8f)
+                        )
+                    }
+                }
             }
 
     // 3. Central Target Crosshair Viewport Overlay
@@ -666,41 +750,25 @@ fun CameraViewComponent(
                     label = "rollAnim"
                 )
 
-                val targetPulse by infiniteTransition.animateFloat(
-                    initialValue = 1f,
-                    targetValue = 1.15f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(800, easing = FastOutSlowInEasing),
-                        repeatMode = RepeatMode.Reverse
-                    ),
-                    label = "targetPulse"
-                )
-
                 Canvas(modifier = Modifier.size(100.dp)) {
                     val w = size.width
                     val h = size.height
                     val currentAccent = if (isLeveled) colorPrimary else colorTertiary
                     val accentAlpha = if (isLeveled) 1.0f else 0.7f
 
-                    withTransform({
-                        if (isLeveled) {
-                            scale(targetPulse, targetPulse)
-                        }
-                    }) {
-                        // Outer targeting ring
-                        drawCircle(
-                            color = currentAccent.copy(alpha = accentAlpha),
-                            radius = 28f,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
-                        )
+                    // Outer targeting ring
+                    drawCircle(
+                        color = currentAccent.copy(alpha = accentAlpha),
+                        radius = 28f,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
+                    )
 
-                        // Central precise crosshair reticle dot
-                        drawCircle(
-                            color = currentAccent.copy(alpha = accentAlpha),
-                            radius = 4f,
-                            center = Offset(w / 2f, h / 2f)
-                        )
-                    }
+                    // Central precise crosshair reticle dot
+                    drawCircle(
+                        color = currentAccent.copy(alpha = accentAlpha),
+                        radius = 4f,
+                        center = Offset(w / 2f, h / 2f)
+                    )
 
                     // Mechanical level balance lines with rotation animation
                     val angleOffset = Math.toRadians(animatedRoll.toDouble())
@@ -750,7 +818,7 @@ fun CameraViewComponent(
                     // Mode Badge
                     Surface(
                         color = colorSurface.copy(alpha = 0.6f),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = MaterialTheme.shapes.medium
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -774,8 +842,47 @@ fun CameraViewComponent(
                         }
                     }
 
-                    // Large Live Value
-                    Column(horizontalAlignment = Alignment.End) {
+                        // Large Live Value
+                        Column(horizontalAlignment = Alignment.End) {
+                            // Tracking Accuracy / Status HUD
+                            val isAutoCalibrating = arTrackingState == com.google.ar.core.TrackingState.TRACKING
+                            
+                            val trackingLevelTitle = when (arTrackingState) {
+                                com.google.ar.core.TrackingState.TRACKING -> "追蹤中 (精確)"
+                                com.google.ar.core.TrackingState.PAUSED -> "追蹤暫停"
+                                else -> "正在尋找平面..."
+                            }
+                            val trackingColor = when (arTrackingState) {
+                                com.google.ar.core.TrackingState.TRACKING -> colorPrimary
+                                else -> colorTertiary
+                            }
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(trackingColor, CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = trackingLevelTitle,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Black,
+                                    color = trackingColor
+                                )
+                            }
+                            
+                            if (isAutoCalibrating) {
+                                Text(
+                                    text = "高度已自動校正: ${cameraHeightCm.toInt()}cm",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colorOnSurfaceVariant.copy(alpha = 0.7f),
+                                    fontSize = 9.sp
+                                )
+                            }
+                            
+                            Spacer(modifier = Modifier.height(4.dp))
+
                         if (activePoints.size >= 2) {
                             Text(
                                 text = "總長: ${viewModel.formatLengthValue(viewModel.totalPathDistance)}",
@@ -907,6 +1014,24 @@ fun CameraViewComponent(
                     }
                 }
 
+                val hasPoints = activePoints.isNotEmpty()
+                val addButtonScale by animateFloatAsState(
+                    targetValue = if (hasPoints) 1.15f else 1.0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    label = "addButtonScale"
+                )
+                val rightButtonScale by animateFloatAsState(
+                    targetValue = if (hasPoints) 1.10f else 1.0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    label = "rightButtonScale"
+                )
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -926,7 +1051,9 @@ fun CameraViewComponent(
                         color = colorPrimary,
                         shape = CircleShape,
                         shadowElevation = 6.dp,
-                        modifier = Modifier.size(84.dp)
+                        modifier = Modifier
+                            .graphicsLayer(scaleX = addButtonScale, scaleY = addButtonScale)
+                            .size(84.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(36.dp))
@@ -959,7 +1086,9 @@ fun CameraViewComponent(
                             },
                             color = if (activePoints.isNotEmpty()) colorTertiary else colorSurface.copy(alpha = 0.6f),
                             shape = CircleShape,
-                            modifier = Modifier.size(54.dp)
+                            modifier = Modifier
+                                .graphicsLayer(scaleX = rightButtonScale, scaleY = rightButtonScale)
+                                .size(54.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
@@ -1223,7 +1352,7 @@ fun ARCalibrationOverlay(accentColor: Color) {
             
             Surface(
                 color = Color.Black.copy(alpha = 0.7f),
-                shape = RoundedCornerShape(16.dp),
+                shape = MaterialTheme.shapes.large,
                 shadowElevation = 8.dp
             ) {
                 Column(

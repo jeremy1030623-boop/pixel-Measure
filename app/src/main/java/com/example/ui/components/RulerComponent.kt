@@ -76,7 +76,7 @@ fun RulerComponent(
                     .fillMaxWidth()
                     .padding(bottom = 12.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                shape = RoundedCornerShape(24.dp)
+                shape = MaterialTheme.shapes.extraLarge
             ) {
                 Column(
                     modifier = Modifier.padding(20.dp),
@@ -109,25 +109,13 @@ fun RulerComponent(
 
                     Spacer(modifier = Modifier.height(8.dp))
                     
-                    val infiniteTransition = rememberInfiniteTransition(label = "SavePulse")
-                    val pulseScale by infiniteTransition.animateFloat(
-                        initialValue = 1f,
-                        targetValue = 1.05f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(1000, easing = FastOutSlowInEasing),
-                            repeatMode = RepeatMode.Reverse
-                        ),
-                        label = "pulse"
-                    )
-
                     Button(
                         onClick = {
                             objectNameInput = "物品"
                             showSaveDialog = true
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.graphicsLayer(scaleX = pulseScale, scaleY = pulseScale)
+                        shape = MaterialTheme.shapes.medium
                     ) {
                         Icon(Icons.Default.Save, contentDescription = "儲存")
                         Spacer(modifier = Modifier.width(8.dp))
@@ -139,7 +127,10 @@ fun RulerComponent(
             // Draggable ruler board
             val entryScale by animateFloatAsState(
                 targetValue = 1f,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy),
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                ),
                 label = "entryScale"
             )
 
@@ -148,7 +139,7 @@ fun RulerComponent(
                     .weight(1f)
                     .fillMaxWidth()
                     .graphicsLayer(scaleX = entryScale, scaleY = entryScale)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.large)
                     .pointerInput(density) {
                         detectDragGestures(
                             onDrag = { change, dragAmount ->

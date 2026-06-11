@@ -5,6 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.ViewModelProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import com.example.ui.screens.MainScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.MeasureViewModel
@@ -18,7 +20,8 @@ class MainActivity : ComponentActivity() {
         viewModel = ViewModelProvider(this)[MeasureViewModel::class.java]
         
         setContent {
-            MyApplicationTheme {
+            val dynamicColorEnabled by viewModel.dynamicColorEnabled.collectAsState()
+            MyApplicationTheme(dynamicColor = dynamicColorEnabled) {
                 MainScreen(viewModel = viewModel)
             }
         }

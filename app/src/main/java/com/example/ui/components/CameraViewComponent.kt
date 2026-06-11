@@ -828,7 +828,7 @@ fun CameraViewComponent(
                         ) {
                             Icon(
                                 if (subMode == 0) Icons.Default.CameraAlt else Icons.Default.Height,
-                                contentDescription = null,
+                                contentDescription = if (subMode == 0) "已啟用水平投影測距模式" else "已啟用垂直高度測量模式",
                                 tint = colorTertiary,
                                 modifier = Modifier.size(14.dp)
                             )
@@ -1056,7 +1056,7 @@ fun CameraViewComponent(
                             .size(84.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(36.dp))
+                            Icon(Icons.Default.Add, "新增測量錨點", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(36.dp))
                         }
                     }
 
@@ -1093,7 +1093,7 @@ fun CameraViewComponent(
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     if (activePoints.isNotEmpty()) Icons.Default.Save else Icons.Default.History,
-                                    null,
+                                    contentDescription = if (activePoints.isNotEmpty()) "儲存當前測量" else "開啟歷史紀錄清單",
                                     tint = if (activePoints.isNotEmpty()) MaterialTheme.colorScheme.onTertiary else colorOnSurface,
                                     modifier = Modifier.size(24.dp)
                                 )

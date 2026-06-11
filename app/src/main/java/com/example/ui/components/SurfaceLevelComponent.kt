@@ -147,7 +147,7 @@ fun SurfaceLevelComponent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = onReset) {
-                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Refresh, contentDescription = "重設校準偏置", modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("重置")
             }
@@ -157,7 +157,7 @@ fun SurfaceLevelComponent(
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = MaterialTheme.colorScheme.primary),
                 elevation = null
             ) {
-                Icon(Icons.Default.Balance, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Balance, contentDescription = "立即歸零校準", modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("目前位置設為零點", fontWeight = FontWeight.Bold)
             }
@@ -244,7 +244,7 @@ fun AngleDisplay(label: String, value: Float, color: Color) {
             )
             if (abs(value) < 0.5f) {
                 Spacer(modifier = Modifier.width(4.dp))
-                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.CheckCircle, contentDescription = "完美對齊狀態", tint = color, modifier = Modifier.size(16.dp))
             }
         }
     }

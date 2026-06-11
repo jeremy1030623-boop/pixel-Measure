@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.components.CameraViewComponent
 import com.example.ui.components.RulerComponent
 import com.example.ui.components.SurfaceLevelComponent
+import com.example.ui.components.OnboardingTutorialOverlay
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MeasureViewModel
 import com.example.ui.viewmodel.Point3D
@@ -41,6 +42,7 @@ fun MainScreen(viewModel: MeasureViewModel) {
     val selectedUnit by viewModel.selectedUnit.collectAsState()
     val savedRecords by viewModel.savedRecords.collectAsState()
     val vibrateOnAlignment by viewModel.vibrateOnAlignment.collectAsState()
+    val isFirstTimeUser by viewModel.isFirstTimeUser.collectAsState()
     
     val pitch by viewModel.pitch.collectAsState()
     val roll by viewModel.roll.collectAsState()
@@ -130,13 +132,13 @@ fun MainScreen(viewModel: MeasureViewModel) {
                                                 modifier = Modifier
                                                     .padding(end = 8.dp)
                                                     .background(MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.shapes.medium)
-                                                    .size(36.dp)
+                                                    .size(48.dp)
                                             ) {
                                                 Icon(
                                                     Icons.Default.Balance,
-                                                    contentDescription = "校準",
+                                                    contentDescription = "校準感應器",
                                                     tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                                                    modifier = Modifier.size(18.dp)
+                                                    modifier = Modifier.size(24.dp)
                                                 )
                                             }
 
@@ -146,13 +148,13 @@ fun MainScreen(viewModel: MeasureViewModel) {
                                                 modifier = Modifier
                                                     .padding(end = 8.dp)
                                                     .background(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.shapes.medium)
-                                                    .size(36.dp)
+                                                    .size(48.dp)
                                             ) {
                                                 Icon(
                                                     Icons.Default.Settings,
-                                                    contentDescription = "設定",
+                                                    contentDescription = "開啟設定",
                                                     tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                    modifier = Modifier.size(18.dp)
+                                                    modifier = Modifier.size(24.dp)
                                                 )
                                             }
  
@@ -367,6 +369,13 @@ fun MainScreen(viewModel: MeasureViewModel) {
                 }
             }
         }
+
+        if (isFirstTimeUser) {
+            OnboardingTutorialOverlay(
+                viewModel = viewModel,
+                onDismiss = { viewModel.setFirstTimeUser(false) }
+            )
+        }
     }
 }
 
@@ -559,12 +568,13 @@ fun HistoryContentPane(
                                             onDeleteRecord(record.id)
                                             if (isExpanded) expandedRecordId = null
                                         },
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(48.dp)
                                     ) {
                                         Icon(
                                             Icons.Default.Delete,
-                                            contentDescription = "刪除",
-                                            tint = Color(0xFFEF4444)
+                                            contentDescription = "刪除此筆測量紀錄",
+                                            tint = Color(0xFFEF4444),
+                                            modifier = Modifier.size(24.dp)
                                         )
                                     }
                                 }
@@ -693,6 +703,7 @@ fun SettingsContentPane(
     val cameraHeightCm by viewModel.cameraHeightCm.collectAsState()
     val sensorAlpha by viewModel.sensorAlpha.collectAsState()
     val vibrateOnAlignment by viewModel.vibrateOnAlignment.collectAsState()
+    val dynamicColorEnabled by viewModel.dynamicColorEnabled.collectAsState()
     
     val context = androidx.compose.ui.platform.LocalContext.current
     var showClearConfirm by remember { mutableStateOf(false) }
@@ -716,11 +727,12 @@ fun SettingsContentPane(
             )
             IconButton(
                 onClick = onDismiss,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(48.dp)
             ) {
                 Icon(
                     Icons.Default.Close,
-                    contentDescription = "關閉"
+                    contentDescription = "關閉設定頁面",
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
@@ -913,6 +925,48 @@ fun SettingsContentPane(
                 }
             }
 
+            // Group: 介面與色彩 (Interface & Color Settings)
+            item {
+                Text(
+                    text = "介面外觀設定",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "動態色彩支援 (Material You)",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "在 Android 12+ 手機上，使用系統桌布色彩動態調整應用程式配色主題",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                )
+                            }
+                            Switch(
+                                checked = dynamicColorEnabled,
+                                onCheckedChange = { viewModel.setDynamicColorEnabled(it) }
+                            )
+                        }
+                    }
+                }
+            }
+
             // Group 3: 進階控制與系統 (System Settings & Actions)
             item {
                 Text(
@@ -991,6 +1045,39 @@ fun SettingsContentPane(
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 Text("重設偏差", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+
+                        Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+
+                        // Replay tutorial
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "重新開啟功能導覽",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "再次查看相機投影、螢幕直尺與泡泡水平儀的使用教學",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                )
+                            }
+                            Button(
+                                onClick = { 
+                                    viewModel.setFirstTimeUser(true)
+                                    onDismiss()
+                                    android.widget.Toast.makeText(context, "已重啟功能導覽教學！", android.widget.Toast.LENGTH_SHORT).show()
+                                },
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("立即查看", style = MaterialTheme.typography.bodySmall)
                             }
                         }
 

@@ -69,7 +69,7 @@ val AppShapes = Shapes(
 @Composable
 fun MyApplicationTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false, // Set to false to preserve our tailored professional slate design
+    dynamicColor: Boolean = true, // Defaults to true to support Android 12+ wallpaper dynamic palette
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current

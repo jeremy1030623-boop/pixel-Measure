@@ -135,6 +135,12 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     private val _vibrateOnAlignment = MutableStateFlow(true)
     val vibrateOnAlignment: StateFlow<Boolean> = _vibrateOnAlignment.asStateFlow()
 
+    private val _dynamicColorEnabled = MutableStateFlow(true)
+    val dynamicColorEnabled: StateFlow<Boolean> = _dynamicColorEnabled.asStateFlow()
+
+    private val _isFirstTimeUser = MutableStateFlow(true)
+    val isFirstTimeUser: StateFlow<Boolean> = _isFirstTimeUser.asStateFlow()
+
     // 測量模式: 0 = 水平地面投影測量 (Ground Plane), 1 = 垂直高度測量 (Vertical Height Tool)
     private val _cameraMeasureSubMode = MutableStateFlow(0)
     val cameraMeasureSubMode: StateFlow<Int> = _cameraMeasureSubMode.asStateFlow()
@@ -240,6 +246,8 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         _cameraHeightCm.value = prefs.getFloat("default_camera_height_cm", 140f)
         _sensorAlpha.value = prefs.getFloat("sensor_alpha", 0.2f)
         _vibrateOnAlignment.value = prefs.getBoolean("vibrate_on_alignment", true)
+        _dynamicColorEnabled.value = prefs.getBoolean("dynamic_color_enabled", true)
+        _isFirstTimeUser.value = prefs.getBoolean("is_first_time_user", true)
     }
 
     fun calibrateSensors() {
@@ -366,6 +374,16 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     fun setVibrateOnAlignment(enabled: Boolean) {
         _vibrateOnAlignment.value = enabled
         prefs.edit().putBoolean("vibrate_on_alignment", enabled).apply()
+    }
+
+    fun setDynamicColorEnabled(enabled: Boolean) {
+        _dynamicColorEnabled.value = enabled
+        prefs.edit().putBoolean("dynamic_color_enabled", enabled).apply()
+    }
+
+    fun setFirstTimeUser(enabled: Boolean) {
+        _isFirstTimeUser.value = enabled
+        prefs.edit().putBoolean("is_first_time_user", enabled).apply()
     }
 
     fun setCameraMeasureSubMode(subMode: Int) {

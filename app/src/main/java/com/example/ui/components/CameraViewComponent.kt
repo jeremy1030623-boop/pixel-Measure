@@ -37,6 +37,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
 import android.app.Activity
 import com.example.logic.ShareUtility
 import android.widget.Toast
@@ -1043,17 +1044,18 @@ fun CameraViewComponent(
                     Spacer(modifier = Modifier.size(54.dp))
 
                     // Main Action (+)
-                    Surface(
+                    LargeFloatingActionButton(
                         onClick = { 
                             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                             viewModel.addPoint() 
                         },
-                        color = colorPrimary,
+                        containerColor = colorPrimary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
                         shape = CircleShape,
-                        shadowElevation = 6.dp,
                         modifier = Modifier
                             .graphicsLayer(scaleX = addButtonScale, scaleY = addButtonScale)
                             .size(84.dp)
+                            .testTag("add_point_fab")
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(Icons.Default.Add, "新增測量錨點", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(36.dp))
@@ -1068,13 +1070,14 @@ fun CameraViewComponent(
                                 modifier = Modifier
                                     .size(48.dp)
                                     .background(colorSurface.copy(alpha = 0.6f), CircleShape)
+                                    .testTag("undo_button")
                             ) {
                                 Icon(Icons.Default.Refresh, "撤銷", tint = colorOnSurface)
                             }
                             Spacer(modifier = Modifier.width(12.dp))
                         }
                         
-                        Surface(
+                        FloatingActionButton(
                             onClick = {
                                 if (activePoints.isNotEmpty()) {
                                     saveTitleTextState = ""
@@ -1084,11 +1087,13 @@ fun CameraViewComponent(
                                     onShowHistoryClick()
                                 }
                             },
-                            color = if (activePoints.isNotEmpty()) colorTertiary else colorSurface.copy(alpha = 0.6f),
+                            containerColor = if (activePoints.isNotEmpty()) colorTertiary else colorSurface.copy(alpha = 0.6f),
+                            contentColor = if (activePoints.isNotEmpty()) MaterialTheme.colorScheme.onTertiary else colorOnSurface,
                             shape = CircleShape,
                             modifier = Modifier
                                 .graphicsLayer(scaleX = rightButtonScale, scaleY = rightButtonScale)
                                 .size(54.dp)
+                                .testTag("save_or_history_button")
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
@@ -1120,7 +1125,8 @@ fun CameraViewComponent(
                 },
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .padding(end = 16.dp),
+                    .padding(end = 16.dp)
+                    .testTag("screenshot_fab"),
                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer
             ) {

@@ -15,8 +15,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
@@ -115,7 +119,7 @@ fun RulerComponent(
                             showSaveDialog = true
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
-                        shape = MaterialTheme.shapes.medium
+                        shape = RoundedCornerShape(24.dp)
                     ) {
                         Icon(Icons.Default.Save, contentDescription = "儲存")
                         Spacer(modifier = Modifier.width(8.dp))
@@ -139,7 +143,7 @@ fun RulerComponent(
                     .weight(1f)
                     .fillMaxWidth()
                     .graphicsLayer(scaleX = entryScale, scaleY = entryScale)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.large)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(28.dp))
                     .pointerInput(density) {
                         detectDragGestures(
                             onDrag = { change, dragAmount ->
@@ -161,53 +165,52 @@ fun RulerComponent(
                     val w = size.width
                     val h = size.height
 
-                    // CM graduation scales on the right edge
+                    // Single graduation scales on the left edge (Centimeter physical scale)
                     val mmInDp = 1.5875f
-                    val mmInPx = mmInDp * density
+                    val mmInPx = mmInDp.dp.toPx()
                     var curY = 0f
                     var idx = 0
-                    while (curY < h) {
-                        val tickLen = when {
-                            idx % 10 == 0 -> 45f // Major ticks centimeter
-                            idx % 5 == 0 -> 30f  // Mid ticks half-cm
-                            else -> 18f          // Minor ticks
-                        }
-                        drawLine(
-                            color = colorOutline,
-                            start = Offset(w, curY),
-                            end = Offset(w - tickLen, curY),
-                            strokeWidth = if (idx % 10 == 0) 2.5f else 1.5f
-                        )
-                        // Label centimeter values
-                        if (idx % 10 == 0 && curY > 10f) {
-                            val cmLabel = idx / 10
-                            // Quick text drawing via custom layout not needed, elegant tick display highlights scale
-                        }
-                        curY += mmInPx
-                        idx++
+
+                    val textPaint = android.text.TextPaint().apply {
+                        val alphaVal = (colorOnSurfaceVariant.alpha * 180).toInt()
+                        val redVal = (colorOnSurfaceVariant.red * 255).toInt()
+                        val greenVal = (colorOnSurfaceVariant.green * 255).toInt()
+                        val blueVal = (colorOnSurfaceVariant.blue * 255).toInt()
+                        color = android.graphics.Color.argb(alphaVal, redVal, greenVal, blueVal)
+                        textSize = 10.sp.toPx()
+                        typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+                        isAntiAlias = true
                     }
 
-                    // INCH graduation scales on the left edge
-                    val inchInDp = 160f
-                    val inchInPx = inchInDp * density
-                    val eighthInchPx = inchInPx / 8f
-                    var curInchY = 0f
-                    var inchIdx = 0
-                    while (curInchY < h) {
+                    while (curY < h) {
                         val tickLen = when {
-                            inchIdx % 8 == 0 -> 45f  // Major inch
-                            inchIdx % 4 == 0 -> 30f  // Half inch
-                            inchIdx % 2 == 0 -> 22f  // Quarter inch
-                            else -> 15f              // 1/8 inch
+                            idx % 10 == 0 -> 22.dp.toPx() // Centimeter ticks
+                            idx % 5 == 0 -> 14.dp.toPx()  // 0.5 cm ticks
+                            else -> 8.dp.toPx()           // Millimeter ticks
                         }
+                        
                         drawLine(
                             color = colorOutline,
-                            start = Offset(0f, curInchY),
-                            end = Offset(tickLen, curInchY),
-                            strokeWidth = if (inchIdx % 8 == 0) 2.5f else 1.5f
+                            start = Offset(0f, curY),
+                            end = Offset(tickLen, curY),
+                            strokeWidth = if (idx % 10 == 0) 2.dp.toPx() else 1.dp.toPx()
                         )
-                        curInchY += eighthInchPx
-                        inchIdx++
+
+                        // Centimeter labels next to major centimeter ticks
+                        if (idx % 10 == 0) {
+                            val cmLabel = (idx / 10).toString()
+                            val textX = tickLen + 8.dp.toPx()
+                            val textY = curY + 3.5f.dp.toPx() // offset vertically to center the font baseline
+                            drawContext.canvas.nativeCanvas.drawText(
+                                cmLabel,
+                                textX,
+                                textY,
+                                textPaint
+                            )
+                        }
+
+                        curY += mmInPx
+                        idx++
                     }
 
                     // Background grid patterns for aesthetic sci-fi appeal
@@ -222,36 +225,95 @@ fun RulerComponent(
 
                     // Draw connection line between top & bottom calipers
                     drawLine(
-                        color = colorTertiary.copy(alpha = 0.4f),
+                        color = colorTertiary.copy(alpha = 0.5f),
                         start = Offset(w / 2f, topCaliperY),
                         end = Offset(w / 2f, bottomCaliperY),
-                        strokeWidth = 2f
+                        strokeWidth = 4f,
+                        cap = StrokeCap.Round
                     )
 
-                    // Draw Top Caliper handle indicator
+                    // Draw Top Caliper handle indicator (Horizontal capsule slide bar)
+                    val barHeight = 8f
+                    drawRoundRect(
+                        color = colorPrimary.copy(alpha = 0.3f),
+                        topLeft = Offset(0f, topCaliperY - barHeight / 2f),
+                        size = Size(w, barHeight),
+                        cornerRadius = CornerRadius(barHeight / 2f, barHeight / 2f)
+                    )
                     drawLine(
                         color = colorPrimary,
                         start = Offset(0f, topCaliperY),
                         end = Offset(w, topCaliperY),
-                        strokeWidth = 3f
+                        strokeWidth = 3f,
+                        cap = StrokeCap.Round
                     )
+                    
+                    // Draw nice premium rounded pill-shaped grabber handle in the middle of top caliper
+                    val handleW = 120f
+                    val handleH = 40f
+                    val handleR = 20f
+                    
+                    // Ripple-like outer glow ring
                     drawCircle(
-                        color = colorPrimary,
-                        radius = 12f,
+                        color = colorPrimary.copy(alpha = 0.15f),
+                        radius = 32f,
                         center = Offset(w / 2f, topCaliperY)
                     )
+                    
+                    drawRoundRect(
+                        color = colorPrimary,
+                        topLeft = Offset(w / 2f - handleW / 2f, topCaliperY - handleH / 2f),
+                        size = Size(handleW, handleH),
+                        cornerRadius = CornerRadius(handleR, handleR)
+                    )
+                    
+                    // Inner beautiful tactile capsule notch
+                    val notchW = 40f
+                    val notchH = 8f
+                    val notchR = 4f
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 0.9f),
+                        topLeft = Offset(w / 2f - notchW / 2f, topCaliperY - notchH / 2f),
+                        size = Size(notchW, notchH),
+                        cornerRadius = CornerRadius(notchR, notchR)
+                    )
 
-                    // Draw Bottom Caliper handle indicator
+                    // Draw Bottom Caliper handle indicator (Horizontal capsule slide bar)
+                    drawRoundRect(
+                        color = colorPrimary.copy(alpha = 0.3f),
+                        topLeft = Offset(0f, bottomCaliperY - barHeight / 2f),
+                        size = Size(w, barHeight),
+                        cornerRadius = CornerRadius(barHeight / 2f, barHeight / 2f)
+                    )
                     drawLine(
                         color = colorPrimary,
                         start = Offset(0f, bottomCaliperY),
                         end = Offset(w, bottomCaliperY),
-                        strokeWidth = 3f
+                        strokeWidth = 3f,
+                        cap = StrokeCap.Round
                     )
+                    
+                    // Ripple-like outer glow ring
                     drawCircle(
-                        color = colorPrimary,
-                        radius = 12f,
+                        color = colorPrimary.copy(alpha = 0.15f),
+                        radius = 32f,
                         center = Offset(w / 2f, bottomCaliperY)
+                    )
+                    
+                    // Draw nice premium rounded pill-shaped grabber handle in the middle of bottom caliper
+                    drawRoundRect(
+                        color = colorPrimary,
+                        topLeft = Offset(w / 2f - handleW / 2f, bottomCaliperY - handleH / 2f),
+                        size = Size(handleW, handleH),
+                        cornerRadius = CornerRadius(handleR, handleR)
+                    )
+                    
+                    // Inner beautiful tactile capsule notch
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 0.9f),
+                        topLeft = Offset(w / 2f - notchW / 2f, bottomCaliperY - notchH / 2f),
+                        size = Size(notchW, notchH),
+                        cornerRadius = CornerRadius(notchR, notchR)
                     )
                 }
 

@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -129,33 +130,39 @@ fun MainScreen(viewModel: MeasureViewModel) {
                                         // Quick Unit Selector Capsule HUD
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             // Calibration Button
-                                            IconButton(
+                                            FilledTonalIconButton(
                                                 onClick = { viewModel.calibrateSensors() },
+                                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                                                ),
                                                 modifier = Modifier
                                                     .padding(end = 8.dp)
-                                                    .background(MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.shapes.medium)
                                                     .size(48.dp)
+                                                    .testTag("calibrate_sensor_button")
                                             ) {
                                                 Icon(
                                                     Icons.Default.Balance,
                                                     contentDescription = "校準感應器",
-                                                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
                                                     modifier = Modifier.size(24.dp)
                                                 )
                                             }
 
                                             // Settings Button
-                                            IconButton(
+                                            FilledTonalIconButton(
                                                 onClick = { showSettingsSheet = true },
+                                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                                ),
                                                 modifier = Modifier
                                                     .padding(end = 8.dp)
-                                                    .background(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.shapes.medium)
                                                     .size(48.dp)
+                                                    .testTag("settings_button")
                                             ) {
                                                 Icon(
                                                     Icons.Default.Settings,
                                                     contentDescription = "開啟設定",
-                                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
                                                     modifier = Modifier.size(24.dp)
                                                 )
                                             }
@@ -729,7 +736,7 @@ fun SettingsContentPane(
                         .size(40.dp)
                         .background(
                             MaterialTheme.colorScheme.primaryContainer,
-                            RoundedCornerShape(12.dp)
+                            RoundedCornerShape(24.dp)
                         ),
                     contentAlignment = Alignment.Center
                 ) {
@@ -796,7 +803,7 @@ fun SettingsContentPane(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                     ),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(24.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -826,7 +833,7 @@ fun SettingsContentPane(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(20.dp))
                                 .padding(4.dp),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
@@ -844,7 +851,7 @@ fun SettingsContentPane(
                                         .weight(1f)
                                         .background(
                                             if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                            RoundedCornerShape(8.dp)
+                                            RoundedCornerShape(16.dp)
                                         )
                                         .clickable { viewModel.setUnit(unit) }
                                         .padding(vertical = 8.dp),
@@ -935,7 +942,7 @@ fun SettingsContentPane(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                     ),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(24.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -1064,7 +1071,7 @@ fun SettingsContentPane(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                     ),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(24.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -1130,7 +1137,7 @@ fun SettingsContentPane(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                     ),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(24.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
                 ) {
                     Column(

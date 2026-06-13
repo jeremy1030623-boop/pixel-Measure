@@ -37,6 +37,18 @@ import kotlin.math.*
 
 class MeasureViewModel(application: Application) : AndroidViewModel(application), SensorEventListener {
 
+    private val _currentLanguage = MutableStateFlow("zh-TW")
+    val currentLanguage: StateFlow<String> = _currentLanguage.asStateFlow()
+
+    fun setLanguage(langCode: String) {
+        _currentLanguage.value = langCode
+        prefs.edit().putString("selected_language", langCode).apply()
+    }
+
+    fun getString(key: String): String {
+        return com.example.logic.TranslationManager.getString(key, _currentLanguage.value)
+    }
+
     private val database = MeasureDatabase.getDatabase(application)
     private val repository = MeasureRepository(database.measureDao())
     
@@ -48,8 +60,12 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     val arSession: Session? get() = arCoreSessionHelper?.session
     
     private var latestFrame: Frame? = null
+    private var displayWidth = 1080
+    private var displayHeight = 2400
 
     fun updateDisplayGeometry(rotation: Int, width: Int, height: Int) {
+        displayWidth = width
+        displayHeight = height
         arCoreSessionHelper?.setDisplayGeometry(rotation, width, height)
     }
     
@@ -178,11 +194,6 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun checkArCoreSupport(context: Context) {
-        if (isEmulator()) {
-            _arCoreState.value = "UNSUPPORTED"
-            return
-        }
-
         if (arCoreSessionHelper == null) {
             arCoreSessionHelper = ArCoreSessionHelper(context)
         }
@@ -251,6 +262,20 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         _vibrateOnAlignment.value = prefs.getBoolean("vibrate_on_alignment", true)
         _dynamicColorEnabled.value = prefs.getBoolean("dynamic_color_enabled", true)
         _isFirstTimeUser.value = prefs.getBoolean("is_first_time_user", true)
+        val defaultSystemLang = try {
+            val systemLocale = java.util.Locale.getDefault()
+            val lang = systemLocale.language
+            val country = systemLocale.country
+            when {
+                lang == "zh" && (country.equals("CN", ignoreCase = true) || country.equals("SG", ignoreCase = true)) -> "zh-CN"
+                lang == "zh" -> "zh-TW"
+                com.example.logic.TranslationManager.supportedLanguages.any { it.code == lang } -> lang
+                else -> "en"
+            }
+        } catch (e: Exception) {
+            "en"
+        }
+        _currentLanguage.value = prefs.getString("selected_language", defaultSystemLang) ?: defaultSystemLang
     }
 
     fun calibrateSensors() {
@@ -416,9 +441,9 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
             val frame = latestFrame
             
             if (session != null && frame != null) {
-                // If coordinates are provided, use them; otherwise default to center of frame
-                val hX = pixelX ?: (frame.camera.imageIntrinsics.imageDimensions[0] / 2f)
-                val hY = pixelY ?: (frame.camera.imageIntrinsics.imageDimensions[1] / 2f)
+                // If coordinates are provided, use them; otherwise default to center of display screen
+                val hX = pixelX ?: (displayWidth / 2f)
+                val hY = pixelY ?: (displayHeight / 2f)
                 
                 val hits = frame.hitTest(hX, hY)
                 val hit = hits.firstOrNull { 

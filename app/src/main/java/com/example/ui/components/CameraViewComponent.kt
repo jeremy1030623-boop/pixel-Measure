@@ -178,9 +178,9 @@ fun CameraViewComponent(
         }
     }
 
-    // ARCore Frame update loop
-    LaunchedEffect(arCoreState) {
-        if (arCoreState == "SUPPORTED_INSTALLED") {
+    // ARCore Frame update loop - only active when arCoreActive is false (to keep session synced, though normally not needed as GL view drives loop)
+    LaunchedEffect(arCoreState, arCoreActive) {
+        if (arCoreState == "SUPPORTED_INSTALLED" && !arCoreActive) {
             while (true) {
                 val session = viewModel.arSession
                 if (session != null) {
@@ -191,7 +191,7 @@ fun CameraViewComponent(
                         // Log or handle tracking failures
                     }
                 }
-                kotlinx.coroutines.delay(33) // ~30fps update
+                kotlinx.coroutines.delay(16) // ~60fps update matching high frame-rate screen output
             }
         }
     }
@@ -280,56 +280,98 @@ fun CameraViewComponent(
     } else {
         // Safe UI viewport container
         Box(modifier = Modifier.fillMaxSize()) {
-            // 1. CameraX preview layout
-            AndroidView(
-                factory = { ctx ->
-                    val previewView = PreviewView(ctx).apply {
-                        scaleType = PreviewView.ScaleType.FILL_CENTER
+            // 1. Conditionally render ARCore GLView or CameraX preview layout
+            val arSession = viewModel.arSession
+            if (arCoreActive && arCoreState == "SUPPORTED_INSTALLED" && arSession != null) {
+                // 解除 CameraX 綁定以避免相機權限衝突
+                LaunchedEffect(Unit) {
+                    try {
+                        val cameraProvider = ProcessCameraProvider.getInstance(context).get()
+                        cameraProvider.unbindAll()
+                    } catch (e: Exception) {
+                        Log.e("CameraViewComponent", "Failed to force unbind CameraX on ARCore startup", e)
                     }
-                    val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                    cameraProviderFuture.addListener({
-                        val cameraProvider = cameraProviderFuture.get()
-                        val preview = Preview.Builder().build().also {
-                            it.setSurfaceProvider(previewView.surfaceProvider)
-                        }
-                        val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-                        try {
-                            cameraProvider.unbindAll()
-                            cameraProvider.bindToLifecycle(
-                                lifecycleOwner,
-                                cameraSelector,
-                                preview
-                            )
-                        } catch (exc: Exception) {
-                            Log.e("CameraViewComponent", "Camera binding failed", exc)
-                        }
-                    }, androidx.core.content.ContextCompat.getMainExecutor(ctx))
-                    previewView
-                },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTapGestures { offset ->
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                            
-                            // Trigger persistent visual ping ripple
-                            val pingAnim = Animatable(0f)
-                            val pingPair = offset to pingAnim
-                            pings.add(pingPair)
-                            coroutineScope.launch {
-                                pingAnim.animateTo(1f, animationSpec = tween(600, easing = LinearOutSlowInEasing))
-                                pings.remove(pingPair)
-                            }
-                            
-                            // Sync geometry info before hitTest to ensure pixel-to-world accuracy
-                            val display = (context as android.app.Activity).windowManager.defaultDisplay
-                            viewModel.updateDisplayGeometry(display.rotation, view.width, view.height)
+                }
 
-                            // Using pixel coordinates directly for ARCore hitTest
-                            viewModel.addPoint(offset.x, offset.y)
+                AndroidView(
+                    factory = { ctx ->
+                        com.example.logic.ArCoreGLView(ctx, arSession, viewModel)
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures { offset ->
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                
+                                // Trigger persistent visual ping ripple
+                                val pingAnim = Animatable(0f)
+                                val pingPair = offset to pingAnim
+                                pings.add(pingPair)
+                                coroutineScope.launch {
+                                    pingAnim.animateTo(1f, animationSpec = tween(600, easing = LinearOutSlowInEasing))
+                                    pings.remove(pingPair)
+                                }
+                                
+                                // Sync geometry info before hitTest to ensure pixel-to-world accuracy
+                                val display = (context as android.app.Activity).windowManager.defaultDisplay
+                                viewModel.updateDisplayGeometry(display.rotation, view.width, view.height)
+
+                                // Using pixel coordinates directly for ARCore hitTest
+                                viewModel.addPoint(offset.x, offset.y)
+                            }
                         }
-                    }
-            )
+                )
+            } else {
+                AndroidView(
+                    factory = { ctx ->
+                        val previewView = PreviewView(ctx).apply {
+                            scaleType = PreviewView.ScaleType.FILL_CENTER
+                        }
+                        val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                        cameraProviderFuture.addListener({
+                            val cameraProvider = cameraProviderFuture.get()
+                            val preview = Preview.Builder().build().also {
+                                it.setSurfaceProvider(previewView.surfaceProvider)
+                            }
+                            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                            try {
+                                cameraProvider.unbindAll()
+                                cameraProvider.bindToLifecycle(
+                                    lifecycleOwner,
+                                    cameraSelector,
+                                    preview
+                                )
+                            } catch (exc: Exception) {
+                                Log.e("CameraViewComponent", "Camera binding failed", exc)
+                            }
+                        }, androidx.core.content.ContextCompat.getMainExecutor(ctx))
+                        previewView
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures { offset ->
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                
+                                // Trigger persistent visual ping ripple
+                                val pingAnim = Animatable(0f)
+                                val pingPair = offset to pingAnim
+                                pings.add(pingPair)
+                                coroutineScope.launch {
+                                    pingAnim.animateTo(1f, animationSpec = tween(600, easing = LinearOutSlowInEasing))
+                                    pings.remove(pingPair)
+                                }
+                                
+                                // Sync geometry info before hitTest to ensure pixel-to-world accuracy
+                                val display = (context as android.app.Activity).windowManager.defaultDisplay
+                                viewModel.updateDisplayGeometry(display.rotation, view.width, view.height)
+
+                                // Using pixel coordinates directly for ARCore hitTest
+                                viewModel.addPoint(offset.x, offset.y)
+                            }
+                        }
+                )
+            }
 
             // Dynamic dash offset for crawling animation
             val dashOffset by infiniteTransition.animateFloat(

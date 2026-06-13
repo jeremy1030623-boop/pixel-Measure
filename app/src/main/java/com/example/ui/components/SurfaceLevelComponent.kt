@@ -45,11 +45,33 @@ fun SurfaceLevelComponent(
                       else MaterialTheme.colorScheme.tertiary
                       
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     // 當達到完美水平時觸發觸覺反饋
     LaunchedEffect(isPerfectLevel) {
         if (isPerfectLevel && vibrateOnAlignment) {
-            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+            try {
+                val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    val manager = context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+                    manager?.defaultVibrator
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+                }
+                
+                if (vibrator != null && vibrator.hasVibrator()) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        vibrator.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_HEAVY_CLICK))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        vibrator.vibrate(50)
+                    }
+                } else {
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                }
+            } catch (e: Exception) {
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+            }
         }
     }
 

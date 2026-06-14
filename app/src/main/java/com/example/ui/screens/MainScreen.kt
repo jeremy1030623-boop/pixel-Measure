@@ -117,10 +117,10 @@ fun MainScreen(viewModel: MeasureViewModel) {
                                         ) { targetMode ->
                                             Text(
                                                 text = when (targetMode) {
-                                                    0 -> "相機 AR 測量"
-                                                    1 -> "螢幕卡鉗直尺"
-                                                    2 -> "表面水平校正"
-                                                    else -> "工具"
+                                                    0 -> viewModel.getString("nav_camera")
+                                                    1 -> viewModel.getString("nav_ruler")
+                                                    2 -> viewModel.getString("nav_level")
+                                                    else -> viewModel.getString("app_title")
                                                 },
                                                 style = MaterialTheme.typography.titleLarge,
                                                 fontWeight = FontWeight.ExtraBold,
@@ -144,7 +144,7 @@ fun MainScreen(viewModel: MeasureViewModel) {
                                             ) {
                                                 Icon(
                                                     Icons.Default.Balance,
-                                                    contentDescription = "校準感應器",
+                                                    contentDescription = viewModel.getString("calibration_zero"),
                                                     modifier = Modifier.size(24.dp)
                                                 )
                                             }
@@ -163,7 +163,7 @@ fun MainScreen(viewModel: MeasureViewModel) {
                                             ) {
                                                 Icon(
                                                     Icons.Default.Settings,
-                                                    contentDescription = "開啟設定",
+                                                    contentDescription = viewModel.getString("select_lang"),
                                                     modifier = Modifier.size(24.dp)
                                                 )
                                             }
@@ -177,7 +177,7 @@ fun MainScreen(viewModel: MeasureViewModel) {
                                                         MaterialTheme.shapes.medium
                                                     )
                                                     .clickable {
-                                                        val msg = if (currentLang.startsWith("zh")) "請由「設定」中變更測量單位" else "Please change measurement units in Settings"
+                                                        val msg = viewModel.getString("dynamic_color")
                                                          android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                                                     }
                                                     .padding(horizontal = 14.dp, vertical = 10.dp)
@@ -187,7 +187,7 @@ fun MainScreen(viewModel: MeasureViewModel) {
                                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                                 ) {
                                                     Text(
-                                                        text = if (currentLang.startsWith("zh")) "單位: $selectedUnit" else "Unit: $selectedUnit",
+                                                        text = "${viewModel.getString("unit_label")}: $selectedUnit",
                                                         style = MaterialTheme.typography.labelMedium,
                                                         fontWeight = FontWeight.Black,
                                                         color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -232,14 +232,16 @@ fun MainScreen(viewModel: MeasureViewModel) {
                                 onSaveClick = { title, cmVal ->
                                     viewModel.saveRulerMeasurement(title, cmVal)
                                 },
-                                selectedUnit = selectedUnit
+                                selectedUnit = selectedUnit,
+                                viewModel = viewModel
                             )
                             2 -> SurfaceLevelComponent(
                                 pitch = pitch,
                                 roll = roll,
                                 vibrateOnAlignment = vibrateOnAlignment,
                                 onCalibrate = { viewModel.calibrateSensors() },
-                                onReset = { viewModel.resetCalibration() }
+                                onReset = { viewModel.resetCalibration() },
+                                viewModel = viewModel
                             )
                         }
                     }
@@ -422,7 +424,7 @@ fun HistoryContentPane(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                if (currentLang.startsWith("zh")) "儲存在地測量記錄" else viewModel.getString("history_title"),
+                viewModel.getString("history_title"),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -477,23 +479,15 @@ fun HistoryContentPane(
             ) {
                 Icon(
                     Icons.Default.History,
-                    contentDescription = if (currentLang.startsWith("zh")) "無記錄" else "No Records",
+                    contentDescription = viewModel.getString("no_records"),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                     modifier = Modifier.size(56.dp)
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 
-                val emptyStateText = if (currentLang.startsWith("zh")) {
-                    if (savedRecords.isEmpty()) "尚無儲存的測量數據" else "無匹配的搜尋結果"
-                } else {
-                    if (savedRecords.isEmpty()) viewModel.getString("no_records") else "No matching search results"
-                }
+                val emptyStateText = if (savedRecords.isEmpty()) viewModel.getString("no_records") else viewModel.getString("search_placeholder")
                 
-                val emptyStateSubText = if (currentLang.startsWith("zh")) {
-                    if (savedRecords.isEmpty()) "使用相機 AR 與螢幕尺子測量，並點擊「儲存」按鈕來記錄您的數據。" else "嘗試更換其他搜尋關鍵字後再行重試。"
-                } else {
-                    if (savedRecords.isEmpty()) "Perform measurements using AR Camera or Screen Ruler and click Save." else "Try typing a different search keyword and retry."
-                }
+                val emptyStateSubText = if (savedRecords.isEmpty()) viewModel.getString("save_record_desc") else viewModel.getString("search_placeholder")
                 
                 Text(
                     emptyStateText,
@@ -551,7 +545,7 @@ fun HistoryContentPane(
                                     ) {
                                         Icon(
                                             imageVector = if (record.type == "CAM") Icons.Default.CameraAlt else Icons.Default.Straighten,
-                                            contentDescription = "模式",
+                                            contentDescription = viewModel.getString("nav_camera"),
                                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
                                             modifier = Modifier.size(16.dp)
                                         )
@@ -597,7 +591,7 @@ fun HistoryContentPane(
                                     ) {
                                         Icon(
                                             Icons.Default.Delete,
-                                            contentDescription = "刪除此筆測量紀錄",
+                                            contentDescription = viewModel.getString("clear_all"),
                                             tint = Color(0xFFEF4444),
                                             modifier = Modifier.size(24.dp)
                                         )
@@ -614,7 +608,7 @@ fun HistoryContentPane(
                                 Column(modifier = Modifier.padding(12.dp)) {
                                     if (!record.notes.isNullOrBlank()) {
                                         Text(
-                                            if (currentLang.startsWith("zh")) "備註分析:" else "Remarks Analysis:",
+                                            viewModel.getString("record_notes_placeholder"),
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.primary
@@ -636,14 +630,14 @@ fun HistoryContentPane(
                                         }
                                         if (points.isNotEmpty()) {
                                             Text(
-                                                if (currentLang.startsWith("zh")) "AR 測量標註分析 (${points.size} 個空間標點):" else "AR Annotation Analysis (${points.size} space points):",
+                                                "${viewModel.getString("diagnostics_title")} (${points.size}):",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.Bold,
                                                 color = MaterialTheme.colorScheme.tertiary
                                             )
                                             Spacer(modifier = Modifier.height(4.dp))
                                             points.forEachIndexed { pIdx, pt ->
-                                                val pointName = if (pt.label.isNotBlank()) pt.label else if (currentLang.startsWith("zh")) "標註點 ${pIdx + 1}" else "Point ${pIdx + 1}"
+                                                val pointName = if (pt.label.isNotBlank()) pt.label else "${viewModel.getString("add_label")} ${pIdx + 1}"
                                                 Text(
                                                     " • $pointName: (X:${String.format("%.2f", pt.x)}, Y:${String.format("%.2f", pt.y)}, Z:${String.format("%.2f", pt.z)})",
                                                     style = MaterialTheme.typography.labelSmall,
@@ -657,7 +651,7 @@ fun HistoryContentPane(
 
                                     // Precision sharing utilities hud
                                     Text(
-                                        if (currentLang.startsWith("zh")) "分享與備份導出:" else "Export & Share Report:",
+                                        viewModel.getString("save_record_title"),
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -677,7 +671,7 @@ fun HistoryContentPane(
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Icon(Icons.Default.Share, null, modifier = Modifier.size(12.dp))
                                                 Spacer(modifier = Modifier.width(4.dp))
-                                                Text(if (currentLang.startsWith("zh")) "文字" else "Text", style = MaterialTheme.typography.labelMedium)
+                                                Text(viewModel.getString("share_all"), style = MaterialTheme.typography.labelMedium)
                                             }
                                         }
                                         
@@ -691,7 +685,7 @@ fun HistoryContentPane(
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Icon(Icons.Default.Image, null, modifier = Modifier.size(12.dp))
                                                 Spacer(modifier = Modifier.width(4.dp))
-                                                Text(if (currentLang.startsWith("zh")) "圖片" else "Image", style = MaterialTheme.typography.labelMedium)
+                                                Text(viewModel.getString("take_photo"), style = MaterialTheme.typography.labelMedium)
                                             }
                                         }
 
@@ -770,13 +764,13 @@ fun SettingsContentPane(
                 }
                 Column {
                     Text(
-                        text = if (currentLang.startsWith("zh")) "精密量測設定" else "Precision Settings",
+                        text = viewModel.getString("select_lang"),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Black,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = if (currentLang.startsWith("zh")) "校準偏置・控制元件參數與性能優化" else "Calibrate offset, filter parameters & performance optimization",
+                        text = viewModel.getString("onboarding_title_1"),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
@@ -794,7 +788,7 @@ fun SettingsContentPane(
             ) {
                 Icon(
                     Icons.Default.Close,
-                    contentDescription = if (currentLang.startsWith("zh")) "關閉設定頁面" else "Close Settings Page",
+                    contentDescription = viewModel.getString("undo"),
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -836,13 +830,13 @@ fun SettingsContentPane(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = if (currentLang.startsWith("zh")) "預設量測單位" else "Default Measurement Unit",
+                                    text = viewModel.getString("unit_label"),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = if (currentLang.startsWith("zh")) "設定相機深度、面積與直尺的基準單位" else "Set default unit for camera, area & screen rulers",
+                                    text = viewModel.getString("onboarding_title_1"),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -861,10 +855,10 @@ fun SettingsContentPane(
                             listOf("cm", "m", "in", "ft").forEach { unit ->
                                 val isSelected = selectedUnit == unit
                                 val labelText = when(unit) {
-                                    "cm" -> if (currentLang.startsWith("zh")) "公分 (cm)" else "Centimeter (cm)"
-                                    "m" -> if (currentLang.startsWith("zh")) "公尺 (m)" else "Meter (m)"
-                                    "in" -> if (currentLang.startsWith("zh")) "英吋 (in)" else "Inch (in)"
-                                    "ft" -> if (currentLang.startsWith("zh")) "英呎 (ft)" else "Feet (ft)"
+                                    "cm" -> viewModel.getString("unit_cm")
+                                    "m" -> viewModel.getString("unit_meter")
+                                    "in" -> viewModel.getString("unit_inch")
+                                    "ft" -> viewModel.getString("unit_ft")
                                     else -> unit
                                 }
                                 Box(
@@ -943,7 +937,7 @@ fun SettingsContentPane(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text("100 cm", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
-                            Text(if (currentLang.startsWith("zh")) "140 cm (預設)" else "140 cm (Default)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                            Text("140 cm (${viewModel.getString("diagnostics_status_searching")})", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                             Text("200 cm", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
                         }
 
@@ -1006,7 +1000,7 @@ fun SettingsContentPane(
             item {
                 SettingsGroupHeader(
                     icon = Icons.Default.Tune,
-                    title = if (currentLang.startsWith("zh")) "感應器動態與震動反饋" else "Sensors Dynamics & Haptic Feedback",
+                    title = viewModel.getString("onboarding_title_3"),
                     iconColor = MaterialTheme.colorScheme.secondary
                 )
                 
@@ -1033,19 +1027,7 @@ fun SettingsContentPane(
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = if (currentLang.startsWith("zh")) {
-                                        when {
-                                            sensorAlpha <= 0.12f -> "強效限幅：極高穩定、反應微緩"
-                                            sensorAlpha <= 0.25f -> "標準平滑：平衡雜訊與即時指向"
-                                            else -> "高靈敏度：低阻延遲、些微數值抖動"
-                                        }
-                                    } else {
-                                        when {
-                                            sensorAlpha <= 0.12f -> "Strong Alpha: Highly stable, slightly slower reaction"
-                                            sensorAlpha <= 0.25f -> "Standard Alpha: Optimal noise filtering and instant response"
-                                            else -> "Sensitive Alpha: Lowest latency with minor signal fluctuations"
-                                        }
-                                    },
+                                    text = if (sensorAlpha <= 0.12f) viewModel.getString("diagnostics_title") else viewModel.getString("diagnostics_status_tracking"),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1079,9 +1061,9 @@ fun SettingsContentPane(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(if (currentLang.startsWith("zh")) "高流暢性" else "More Smooth", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
-                            Text(if (currentLang.startsWith("zh")) "0.20 (預設)" else "0.20 (Default)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
-                            Text(if (currentLang.startsWith("zh")) "高即時性" else "More Instant", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                            Text(viewModel.getString("diagnostics_title"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                            Text("0.20 (${viewModel.getString("diagnostics_status_searching")})", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
+                            Text(viewModel.getString("diagnostics_status_tracking"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
                         }
 
                         Divider(
@@ -1124,7 +1106,7 @@ fun SettingsContentPane(
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = if (currentLang.startsWith("zh")) "角度為 0.0° 時，發起輕微物理短震震動" else "Emit a momentary short haptic tick once the slope hits perfect 0.0°",
+                                        text = if (currentLang.startsWith("zh")) "震動提醒" else "Haptic Feedback",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -1143,7 +1125,7 @@ fun SettingsContentPane(
             item {
                 SettingsGroupHeader(
                     icon = Icons.Default.Palette,
-                    title = if (currentLang.startsWith("zh")) "系統色彩與外觀主題" else "System Palette & Visual Theme",
+                    title = if (currentLang.startsWith("zh")) "介面主題" else "Visual Theme",
                     iconColor = MaterialTheme.colorScheme.tertiary
                 )
                 
@@ -1190,7 +1172,7 @@ fun SettingsContentPane(
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = if (currentLang.startsWith("zh")) "支援 Android 12+ 系統桌布色調自適應" else "Support dynamic colors synced with Android 12+ wallpaper",
+                                        text = if (currentLang.startsWith("zh")) "動態配色方案" else "Dynamic Color Palette",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -1241,8 +1223,8 @@ fun SettingsContentPane(
                                             )
                                             Text(
                                                 text = if (currentLang.startsWith("zh")) 
-                                                    "已偵測到首選 Google Pixel 裝置並完全最佳化！已成功連結系統智慧莫重 (Monet) 壁紙自適應配色引擎。" 
-                                                    else "Google Pixel device fully optimized! Connected with system-wide Material You (Monet) wallpaper dynamic accent colors.",
+                                                    "已偵測到首選 Google Pixel 裝置並完全最佳化！" 
+                                                    else "Google Pixel device fully optimized!",
                                                 style = MaterialTheme.typography.bodySmall.copy(
                                                     fontWeight = FontWeight.Bold,
                                                     lineHeight = 15.sp
@@ -1286,13 +1268,13 @@ fun SettingsContentPane(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = if (currentLang.startsWith("zh")) "顯示語系" else "Display Language",
+                                    text = if (currentLang.startsWith("zh")) "語言設定" else "Language",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = if (currentLang.startsWith("zh")) "設定 33 種多國系統語系對應顯示" else "Switch database and menus between 33 languages",
+                                    text = if (currentLang.startsWith("zh")) "切換不同語言顯示" else "Switch application language",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1356,7 +1338,7 @@ fun SettingsContentPane(
             item {
                 SettingsGroupHeader(
                     icon = Icons.Default.Build,
-                    title = if (currentLang.startsWith("zh")) "感應器基準校準與歷史備份" else "Sensors Calibration & Local Storage Management",
+                    title = if (currentLang.startsWith("zh")) "進階校準與管理" else "Advanced Calibration",
                     iconColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 
@@ -1380,13 +1362,13 @@ fun SettingsContentPane(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = if (currentLang.startsWith("zh")) "設定當前角度為全新零點 (0°)" else "Calibrate current posture as zero point (0°)",
+                                    text = viewModel.getString("calibration_zero"),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = if (currentLang.startsWith("zh")) "將當前擺放姿勢記為全新的平行參考點" else "Establish present sensor reading values as the flat reference angle",
+                                    text = if (currentLang.startsWith("zh")) "重新校準感應器點" else "Recalibrate sensor zero point",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1419,13 +1401,13 @@ fun SettingsContentPane(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = if (currentLang.startsWith("zh")) "還原出廠硬體姿態偏置" else "Restore default physical sensor offsets",
+                                    text = viewModel.getString("reset_deviation"),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = if (currentLang.startsWith("zh")) "清除所有自定義的零度偏置基準數據" else "Wipe custom zero-level alignment criteria",
+                                    text = if (currentLang.startsWith("zh")) "清除所有校準偏置" else "Clear all custom offsets",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1458,13 +1440,13 @@ fun SettingsContentPane(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = if (currentLang.startsWith("zh")) "重新閱讀量測操作教學與導覽" else "Relaunch Interactive Interface Tutorial",
+                                    text = viewModel.getString("tutorial_title"),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = if (currentLang.startsWith("zh")) "重新開啟首頁互動指引與全套工具操作指南" else "Unlock full onboarding and tutorial user guidelines",
+                                    text = viewModel.getString("onboarding_title_1"),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1502,13 +1484,13 @@ fun SettingsContentPane(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = if (currentLang.startsWith("zh")) "永久清除所有歷史量測紀錄" else "Permanently Clear All History Records",
+                                    text = viewModel.getString("clear_all"),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.error
                                 )
                                 Text(
-                                    text = if (currentLang.startsWith("zh")) "包含全部已保存的3D相機及直尺條目，此操作不可回復" else "Includes all saved 3D camera measurements & screen rulers; this cannot be undone.",
+                                    text = viewModel.getString("no_records"),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1574,12 +1556,11 @@ fun SettingsContentPane(
             text = { Text(viewModel.getString("clear_confirm_desc")) },
             confirmButton = {
                 TextButton(
-                    onClick = {
-                        viewModel.clearAllRecords()
-                        showClearConfirm = false
-                        val msg = if (currentLang.startsWith("zh")) "所有歷史數據已成功清除！" else "All historical records successfully wiped!"
-                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-                    }
+                        onClick = {
+                            viewModel.clearAllRecords()
+                            showClearConfirm = false
+                            android.widget.Toast.makeText(context, viewModel.getString("toast_reset"), android.widget.Toast.LENGTH_SHORT).show()
+                        }
                 ) {
                     Text(viewModel.getString("ok_clear"), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                 }

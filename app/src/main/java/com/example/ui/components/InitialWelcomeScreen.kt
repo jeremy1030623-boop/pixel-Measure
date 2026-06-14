@@ -129,7 +129,7 @@ fun InitialWelcomeScreen(
 
                 // App Titles
                 Text(
-                    text = "行動智慧測量",
+                    text = viewModel.getString("welcome_title_main"),
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -140,7 +140,7 @@ fun InitialWelcomeScreen(
                 Spacer(modifier = Modifier.height(6.dp))
                 
                 Text(
-                    text = "Smart Spatial Measurement Suite",
+                    text = viewModel.getString("welcome_title_sub"),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
@@ -165,8 +165,8 @@ fun InitialWelcomeScreen(
                             modifier = Modifier.size(24.dp)
                         )
                     },
-                    title = "相機 3D 空間投影測量",
-                    description = "一鍵定位起終點與目標平面，精密計算物件的長度、高度與多維面積數據。"
+                    title = viewModel.getString("welcome_feature_1_title"),
+                    description = viewModel.getString("welcome_feature_1_desc")
                 )
 
                 FeatureHighlightRow(
@@ -178,8 +178,8 @@ fun InitialWelcomeScreen(
                             modifier = Modifier.size(24.dp)
                         )
                     },
-                    title = "螢幕多功卡針直尺",
-                    description = "高流暢微調游標阻尼，極速公分與英吋標準刻度轉換，適合小型工藝品量測。"
+                    title = viewModel.getString("welcome_feature_2_title"),
+                    description = viewModel.getString("welcome_feature_2_desc")
                 )
 
                 FeatureHighlightRow(
@@ -191,8 +191,8 @@ fun InitialWelcomeScreen(
                             modifier = Modifier.size(24.dp)
                         )
                     },
-                    title = "泡泡精密水平儀與零點校準",
-                    description = "傾角傳感器即時補償，完美水平 0° 本地觸覺震動回饋，隨時重設偏置基準點。"
+                    title = viewModel.getString("welcome_feature_3_title"),
+                    description = viewModel.getString("welcome_feature_3_desc")
                 )
             }
 
@@ -228,7 +228,7 @@ fun InitialWelcomeScreen(
                                 modifier = Modifier.size(14.dp)
                             )
                             Text(
-                                text = "已啟用 Android 12+ 智慧動態配色",
+                                text = viewModel.getString("welcome_dynamic_color"),
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
@@ -275,7 +275,7 @@ fun InitialWelcomeScreen(
                         horizontalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = "開啟精密量測",
+                            text = viewModel.getString("welcome_btn_start"),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.ExtraBold,
                             letterSpacing = 1.sp
@@ -293,7 +293,7 @@ fun InitialWelcomeScreen(
 
                 // Developer / Version Signature Footer Info
                 Text(
-                    text = "行動智慧測量套件 v2.5.0 • 高度無障礙設計",
+                    text = viewModel.getString("welcome_footer"),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     textAlign = TextAlign.Center

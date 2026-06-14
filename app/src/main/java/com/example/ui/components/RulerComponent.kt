@@ -4,25 +4,24 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -31,305 +30,164 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.theme.*
 import kotlin.math.abs
 
+import androidx.compose.runtime.collectAsState
+
 @Composable
 fun RulerComponent(
     onSaveClick: (String, Double) -> Unit,
-    selectedUnit: String
+    selectedUnit: String,
+    viewModel: com.example.ui.viewmodel.MeasureViewModel
 ) {
-    var topCaliperY by remember { mutableStateOf(100f) }
-    var bottomCaliperY by remember { mutableStateOf(500f) }
+    // Zero reference offsets (offset from top of screen to make room for status bars / pin hole cameras)
+    val zeroY = with(LocalDensity.current) { 60.dp.toPx() }
+
+    val currentLang by viewModel.currentLanguage.collectAsState()
+    val context = LocalContext.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val displayMetrics = context.resources.displayMetrics
+    
+    // Real hardware Y-DPI or DPI fallback
+    val ydpi = remember(displayMetrics) {
+        val y = displayMetrics.ydpi
+        if (y > 50f && !y.isNaN() && !y.isInfinite()) y else displayMetrics.densityDpi.toFloat()
+    }
+    
+    val calibrationFactor by viewModel.rulerCalibration.collectAsState()
+    val scaledYdpi = remember(ydpi, calibrationFactor) { ydpi * calibrationFactor }
+
+    // Helper functions for CM to Pixel mapping
+    val mmInPx = remember(scaledYdpi) { scaledYdpi / 25.4f }
+
+    // UI controls
+    var rulerOnRight by remember { mutableStateOf(true) }
+    var showCalibration by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var objectNameInput by remember { mutableStateOf("") }
+    var manualValueInput by remember { mutableStateOf("") }
 
-    val density = LocalDensity.current.density
-    
-    // Physical Conversion: 1 dp = 0.15875 mm = 0.015875 cm
-    // caliper distance in DP = pixelDist / density
-    fun getMeasuredCm(): Double {
-        val dpDist = abs(bottomCaliperY - topCaliperY) / density
-        return dpDist * 0.015875
-    }
-
-    val displayCm = getMeasuredCm()
-    val displayValue = when (selectedUnit) {
-        "cm" -> displayCm
-        "m" -> displayCm / 100.0
-        "in" -> displayCm / 2.54
-        "ft" -> displayCm / 30.48
-        else -> displayCm
-    }
+    // Interactive translations
+    val titleText = viewModel.getString("onboarding_title_1")
+    val alignLeftText = viewModel.getString("cancel")
+    val alignRightText = viewModel.getString("ok_clear")
+    val calibrationText = viewModel.getString("diagnostics_title")
+    val calibrateModeText = viewModel.getString("diagnostics_status_searching")
+    val saveBtnText = viewModel.getString("history_saved")
+    val dragHintText = viewModel.getString("onboarding_desc_1")
+    val saveDialogTitle = viewModel.getString("history_saved")
+    val saveDialogHint = viewModel.getString("onboarding_desc_2")
+    val saveDialogPlaceholderName = viewModel.getString("onboarding_desc_3")
+    val saveDialogPlaceholderValue = viewModel.getString("measurement_hint")
+    val defaultObjectName = viewModel.getString("history_item_ruler")
+    val okConfirmText = viewModel.getString("ok_clear")
+    val cancelText = viewModel.getString("cancel")
 
     val colorPrimary = MaterialTheme.colorScheme.primary
-    val colorTertiary = MaterialTheme.colorScheme.tertiary
+    val colorBackground = MaterialTheme.colorScheme.background
     val colorOnSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-    val colorOutline = MaterialTheme.colorScheme.outlineVariant
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(16.dp)
+            .background(colorBackground)
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Value display panel
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                shape = MaterialTheme.shapes.extraLarge
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "螢幕直尺測量儀",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    
-                    AnimatedContent(
-                        targetState = displayValue,
-                        transitionSpec = {
-                            fadeIn(animationSpec = tween(200)) togetherWith fadeOut(animationSpec = tween(200))
-                        },
-                        label = "valueAnim"
-                    ) { targetValue ->
-                        Text(
-                            text = String.format("%.2f %s", targetValue, selectedUnit),
-                            style = MaterialTheme.typography.displayLarge.copy(
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Black
-                            ),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    Button(
-                        onClick = {
-                            objectNameInput = "物品"
-                            showSaveDialog = true
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
-                        shape = RoundedCornerShape(24.dp)
+        val rulerPanelWidth = 140.dp
+        
+        AnimatedContent(
+            targetState = rulerOnRight,
+            transitionSpec = {
+                if (targetState) {
+                    slideInHorizontally { it } + fadeIn() togetherWith slideOutHorizontally { -it } + fadeOut()
+                } else {
+                    slideInHorizontally { -it } + fadeIn() togetherWith slideOutHorizontally { it } + fadeOut()
+                }.using(SizeTransform(clip = false))
+            },
+            label = "RulerSideToggle"
+        ) { isRight ->
+            Row(modifier = Modifier.fillMaxSize()) {
+                if (isRight) {
+                    // Workspace on Left
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Save, contentDescription = "儲存")
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("儲存此測量")
-                    }
-                }
-            }
-
-            // Draggable ruler board
-            val entryScale by animateFloatAsState(
-                targetValue = 1f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                ),
-                label = "entryScale"
-            )
-
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .graphicsLayer(scaleX = entryScale, scaleY = entryScale)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(28.dp))
-                    .pointerInput(density) {
-                        detectDragGestures(
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                val touchY = change.position.y
-                                // Determine which caliper is closer to drag and move it
-                                if (abs(touchY - topCaliperY) < abs(touchY - bottomCaliperY)) {
-                                    topCaliperY = touchY.coerceIn(20f, bottomCaliperY - 40f)
-                                } else {
-                                    bottomCaliperY = bottomCaliperY + dragAmount.y
-                                    bottomCaliperY = bottomCaliperY.coerceIn(topCaliperY + 40f, size.height.toFloat() - 20f)
-                                }
-                            }
+                        WorkspaceDisplayCard(
+                            titleText = titleText,
+                            dragHintText = dragHintText,
+                            showSaveDialog = {
+                                objectNameInput = ""
+                                manualValueInput = ""
+                                showSaveDialog = true
+                            },
+                            rulerOnRight = true,
+                            onToggleSide = { rulerOnRight = it },
+                            showCalibration = showCalibration,
+                            onToggleCalibration = { showCalibration = it },
+                            saveBtnText = saveBtnText,
+                            alignLeftText = alignLeftText,
+                            alignRightText = alignRightText,
+                            calibrationText = calibrationText
                         )
                     }
-            ) {
-                // Rule Scale drawings
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val w = size.width
-                    val h = size.height
+                    
+                    // Samsung-Style Ruler Panel on Right
+                    SamsungRulerPanel(
+                        width = rulerPanelWidth,
+                        rulerOnRight = true,
+                        zeroY = zeroY,
+                        mmInPx = mmInPx,
+                        colorOnSurfaceVariant = colorOnSurfaceVariant,
+                        selectedUnit = selectedUnit,
+                        scaledYdpi = scaledYdpi,
+                        showCalibration = showCalibration,
+                        calibrationFactor = calibrationFactor,
+                        calibrateModeText = calibrateModeText,
+                        onUpdateCalibration = { viewModel.updateRulerCalibration(it) }
+                    )
+                } else {
+                    // Samsung-Style Ruler Panel on Left
+                    SamsungRulerPanel(
+                        width = rulerPanelWidth,
+                        rulerOnRight = false,
+                        zeroY = zeroY,
+                        mmInPx = mmInPx,
+                        colorOnSurfaceVariant = colorOnSurfaceVariant,
+                        selectedUnit = selectedUnit,
+                        scaledYdpi = scaledYdpi,
+                        showCalibration = showCalibration,
+                        calibrationFactor = calibrationFactor,
+                        calibrateModeText = calibrateModeText,
+                        onUpdateCalibration = { viewModel.updateRulerCalibration(it) }
+                    )
 
-                    // Single graduation scales on the left edge (Centimeter physical scale)
-                    val mmInDp = 1.5875f
-                    val mmInPx = mmInDp.dp.toPx()
-                    var curY = 0f
-                    var idx = 0
-
-                    val textPaint = android.text.TextPaint().apply {
-                        val alphaVal = (colorOnSurfaceVariant.alpha * 180).toInt()
-                        val redVal = (colorOnSurfaceVariant.red * 255).toInt()
-                        val greenVal = (colorOnSurfaceVariant.green * 255).toInt()
-                        val blueVal = (colorOnSurfaceVariant.blue * 255).toInt()
-                        color = android.graphics.Color.argb(alphaVal, redVal, greenVal, blueVal)
-                        textSize = 10.sp.toPx()
-                        typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
-                        isAntiAlias = true
-                    }
-
-                    while (curY < h) {
-                        val tickLen = when {
-                            idx % 10 == 0 -> 22.dp.toPx() // Centimeter ticks
-                            idx % 5 == 0 -> 14.dp.toPx()  // 0.5 cm ticks
-                            else -> 8.dp.toPx()           // Millimeter ticks
-                        }
-                        
-                        drawLine(
-                            color = colorOutline,
-                            start = Offset(0f, curY),
-                            end = Offset(tickLen, curY),
-                            strokeWidth = if (idx % 10 == 0) 2.dp.toPx() else 1.dp.toPx()
-                        )
-
-                        // Centimeter labels next to major centimeter ticks
-                        if (idx % 10 == 0) {
-                            val cmLabel = (idx / 10).toString()
-                            val textX = tickLen + 8.dp.toPx()
-                            val textY = curY + 3.5f.dp.toPx() // offset vertically to center the font baseline
-                            drawContext.canvas.nativeCanvas.drawText(
-                                cmLabel,
-                                textX,
-                                textY,
-                                textPaint
-                            )
-                        }
-
-                        curY += mmInPx
-                        idx++
-                    }
-
-                    // Background grid patterns for aesthetic sci-fi appeal
-                    for (xGrid in (w.toInt() / 5)..w.toInt() step (w.toInt() / 5)) {
-                        drawLine(
-                            color = colorOnSurfaceVariant.copy(alpha = 0.05f),
-                            start = Offset(xGrid.toFloat(), 0f),
-                            end = Offset(xGrid.toFloat(), h),
-                            strokeWidth = 1f
+                    // Workspace on Right
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        WorkspaceDisplayCard(
+                            titleText = titleText,
+                            dragHintText = dragHintText,
+                            showSaveDialog = {
+                                objectNameInput = ""
+                                manualValueInput = ""
+                                showSaveDialog = true
+                            },
+                            rulerOnRight = false,
+                            onToggleSide = { rulerOnRight = it },
+                            showCalibration = showCalibration,
+                            onToggleCalibration = { showCalibration = it },
+                            saveBtnText = saveBtnText,
+                            alignLeftText = alignLeftText,
+                            alignRightText = alignRightText,
+                            calibrationText = calibrationText
                         )
                     }
-
-                    // Draw connection line between top & bottom calipers
-                    drawLine(
-                        color = colorTertiary.copy(alpha = 0.5f),
-                        start = Offset(w / 2f, topCaliperY),
-                        end = Offset(w / 2f, bottomCaliperY),
-                        strokeWidth = 4f,
-                        cap = StrokeCap.Round
-                    )
-
-                    // Draw Top Caliper handle indicator (Horizontal capsule slide bar)
-                    val barHeight = 8f
-                    drawRoundRect(
-                        color = colorPrimary.copy(alpha = 0.3f),
-                        topLeft = Offset(0f, topCaliperY - barHeight / 2f),
-                        size = Size(w, barHeight),
-                        cornerRadius = CornerRadius(barHeight / 2f, barHeight / 2f)
-                    )
-                    drawLine(
-                        color = colorPrimary,
-                        start = Offset(0f, topCaliperY),
-                        end = Offset(w, topCaliperY),
-                        strokeWidth = 3f,
-                        cap = StrokeCap.Round
-                    )
-                    
-                    // Draw nice premium rounded pill-shaped grabber handle in the middle of top caliper
-                    val handleW = 120f
-                    val handleH = 40f
-                    val handleR = 20f
-                    
-                    // Ripple-like outer glow ring
-                    drawCircle(
-                        color = colorPrimary.copy(alpha = 0.15f),
-                        radius = 32f,
-                        center = Offset(w / 2f, topCaliperY)
-                    )
-                    
-                    drawRoundRect(
-                        color = colorPrimary,
-                        topLeft = Offset(w / 2f - handleW / 2f, topCaliperY - handleH / 2f),
-                        size = Size(handleW, handleH),
-                        cornerRadius = CornerRadius(handleR, handleR)
-                    )
-                    
-                    // Inner beautiful tactile capsule notch
-                    val notchW = 40f
-                    val notchH = 8f
-                    val notchR = 4f
-                    drawRoundRect(
-                        color = Color.White.copy(alpha = 0.9f),
-                        topLeft = Offset(w / 2f - notchW / 2f, topCaliperY - notchH / 2f),
-                        size = Size(notchW, notchH),
-                        cornerRadius = CornerRadius(notchR, notchR)
-                    )
-
-                    // Draw Bottom Caliper handle indicator (Horizontal capsule slide bar)
-                    drawRoundRect(
-                        color = colorPrimary.copy(alpha = 0.3f),
-                        topLeft = Offset(0f, bottomCaliperY - barHeight / 2f),
-                        size = Size(w, barHeight),
-                        cornerRadius = CornerRadius(barHeight / 2f, barHeight / 2f)
-                    )
-                    drawLine(
-                        color = colorPrimary,
-                        start = Offset(0f, bottomCaliperY),
-                        end = Offset(w, bottomCaliperY),
-                        strokeWidth = 3f,
-                        cap = StrokeCap.Round
-                    )
-                    
-                    // Ripple-like outer glow ring
-                    drawCircle(
-                        color = colorPrimary.copy(alpha = 0.15f),
-                        radius = 32f,
-                        center = Offset(w / 2f, bottomCaliperY)
-                    )
-                    
-                    // Draw nice premium rounded pill-shaped grabber handle in the middle of bottom caliper
-                    drawRoundRect(
-                        color = colorPrimary,
-                        topLeft = Offset(w / 2f - handleW / 2f, bottomCaliperY - handleH / 2f),
-                        size = Size(handleW, handleH),
-                        cornerRadius = CornerRadius(handleR, handleR)
-                    )
-                    
-                    // Inner beautiful tactile capsule notch
-                    drawRoundRect(
-                        color = Color.White.copy(alpha = 0.9f),
-                        topLeft = Offset(w / 2f - notchW / 2f, bottomCaliperY - notchH / 2f),
-                        size = Size(notchW, notchH),
-                        cornerRadius = CornerRadius(notchR, notchR)
-                    )
-                }
-
-                // HUD Overlays
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "《 拖動兩端刻度進行微調測量 》",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colorOnSurfaceVariant.copy(alpha = 0.6f),
-                        textAlign = TextAlign.Center
-                    )
                 }
             }
         }
@@ -339,30 +197,50 @@ fun RulerComponent(
     if (showSaveDialog) {
         AlertDialog(
             onDismissRequest = { showSaveDialog = false },
-            title = { Text("儲存測量數值") },
+            title = { Text(saveDialogTitle) },
             text = {
-                Column {
-                    Text("請輸入測量物品名稱：")
-                    Spacer(modifier = Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(saveDialogHint, style = MaterialTheme.typography.bodyMedium)
+                    
                     OutlinedTextField(
                         value = objectNameInput,
                         onValueChange = { objectNameInput = it },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        placeholder = { Text("例如：筆記本、香蕉...") }
+                        label = { Text(if (currentLang.startsWith("zh")) "物體名稱" else "Object Name") },
+                        placeholder = { Text(saveDialogPlaceholderName) }
+                    )
+
+                    OutlinedTextField(
+                        value = manualValueInput,
+                        onValueChange = { manualValueInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text(if (currentLang.startsWith("zh")) "讀取長度 (${selectedUnit})" else "Measured Length (${selectedUnit})") },
+                        placeholder = { Text(saveDialogPlaceholderValue) }
                     )
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        val finalLabel = objectNameInput.trim().ifEmpty { "螢幕直尺測量" }
-                        onSaveClick(finalLabel, displayCm)
+                        val finalLabel = objectNameInput.trim().ifEmpty { defaultObjectName }
+                        val parsedVal = manualValueInput.toDoubleOrNull() ?: 0.0
+                        
+                        // If selectedUnit is not cm, convert it into cm first before saving
+                        val cmValue = when (selectedUnit) {
+                            "m" -> parsedVal * 100.0
+                            "in" -> parsedVal * 2.54
+                            "ft" -> parsedVal * 30.48
+                            else -> parsedVal
+                        }
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        onSaveClick(finalLabel, cmValue)
                         showSaveDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colorPrimary, contentColor = MaterialTheme.colorScheme.onPrimary)
                 ) {
-                    Text("確認儲存")
+                    Text(okConfirmText)
                 }
             },
             dismissButton = {
@@ -370,9 +248,276 @@ fun RulerComponent(
                     onClick = { showSaveDialog = false },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
                 ) {
-                    Text("取消")
+                    Text(cancelText)
                 }
             }
         )
+    }
+}
+
+@Composable
+fun WorkspaceDisplayCard(
+    titleText: String,
+    dragHintText: String,
+    showSaveDialog: () -> Unit,
+    rulerOnRight: Boolean,
+    onToggleSide: (Boolean) -> Unit,
+    showCalibration: Boolean,
+    onToggleCalibration: (Boolean) -> Unit,
+    saveBtnText: String,
+    alignLeftText: String,
+    alignRightText: String,
+    calibrationText: String
+) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .wrapContentHeight()
+            .shadow(12.dp, RoundedCornerShape(24.dp)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(24.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Header Title
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Straighten,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = titleText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+            }
+
+            // Description of how to measure physically
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { clip = true }
+                    .background(
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f),
+                        RoundedCornerShape(16.dp)
+                    )
+                    .padding(18.dp)
+            ) {
+                Text(
+                    text = dragHintText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+            }
+
+            // Quick Control Action Buttons: Save & Calibrate
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Save measurement record button
+                Button(
+                    onClick = showSaveDialog,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = "儲存記錄", modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(saveBtnText, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+
+            // Position & Calibration Toggles
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Rule side adjustment toggle
+                Button(
+                    onClick = { onToggleSide(!rulerOnRight) },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.CompareArrows, contentDescription = "側邊切換", modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (rulerOnRight) alignLeftText else alignRightText, style = MaterialTheme.typography.labelSmall)
+                }
+
+                // Calibration overlay toggle
+                Button(
+                    onClick = { onToggleCalibration(!showCalibration) },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (showCalibration) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (showCalibration) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Tune, contentDescription = "校準", modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(calibrationText, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SamsungRulerPanel(
+    width: androidx.compose.ui.unit.Dp,
+    rulerOnRight: Boolean,
+    zeroY: Float,
+    mmInPx: Float,
+    colorOnSurfaceVariant: Color,
+    selectedUnit: String,
+    scaledYdpi: Float,
+    showCalibration: Boolean,
+    calibrationFactor: Float,
+    calibrateModeText: String,
+    onUpdateCalibration: (Float) -> Unit
+) {
+    val colorPrimary = MaterialTheme.colorScheme.primary
+    
+    Box(
+        modifier = Modifier
+            .width(width)
+            .fillMaxHeight()
+            .background(Color(0xE61A1C1E)) // Elegant dynamic dark acrylic gray
+    ) {
+        // Calibration Slider sliding overlay if toggled
+        AnimatedVisibility(
+            visible = showCalibration,
+            enter = fadeIn() + slideInVertically { it / 2 },
+            exit = fadeOut() + slideOutVertically { it / 2 },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, end = 12.dp, bottom = 24.dp),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xF2121415)),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = calibrateModeText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.8f),
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = String.format("%.1f%%", calibrationFactor * 100),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorPrimary
+                        )
+                        Slider(
+                            value = calibrationFactor,
+                            onValueChange = onUpdateCalibration,
+                            valueRange = 0.85f..1.15f
+                        )
+                        TextButton(
+                            onClick = { onUpdateCalibration(1.0f) },
+                            modifier = Modifier.height(28.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text("Reset", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Draw scale ticks flush to screen edge
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val panelW = size.width
+            val h = size.height
+
+            // Paint configurations for vertical numeric labels
+            val textPaint = android.text.TextPaint().apply {
+                color = android.graphics.Color.WHITE
+                textSize = 10.sp.toPx()
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+                isAntiAlias = true
+            }
+
+            // Loop metrics
+            var curY = zeroY
+            var idx = 0
+
+            // Draw graduated rules
+            while (curY < h - 40f) {
+                // Decide tick length based on centimeter, half-centimeter, or millimeter status
+                val tickLen = when {
+                    idx % 10 == 0 -> 24.dp.toPx() // centimeters
+                    idx % 5 == 0 -> 15.dp.toPx()  // 0.5 cm
+                    else -> 8.dp.toPx()           // millimeters
+                }
+
+                // Calculate edge alignment
+                // Right aligned means start on panel width (panelW) and draw to left
+                // Left aligned means start at 0 and draw to right
+                val startX = if (rulerOnRight) panelW else 0f
+                val endX = if (rulerOnRight) panelW - tickLen else tickLen
+
+                drawLine(
+                    color = if (idx % 10 == 0) colorPrimary else Color.White.copy(alpha = 0.4f),
+                    start = Offset(startX, curY),
+                    end = Offset(endX, curY),
+                    strokeWidth = if (idx % 10 == 0) 2.5f.dp.toPx() else 1.2f.dp.toPx()
+                )
+
+                // Render number index texts for centimeters
+                if (idx % 10 == 0) {
+                    val labelStr = (idx / 10).toString()
+                    val textX = if (rulerOnRight) {
+                        panelW - tickLen - 12.dp.toPx()
+                    } else {
+                        tickLen + 6.dp.toPx()
+                    }
+                    val textY = curY + 3.5f.dp.toPx() // vertical centering offset
+
+                    drawContext.canvas.nativeCanvas.drawText(
+                        labelStr,
+                        textX,
+                        textY,
+                        textPaint
+                    )
+                }
+
+                curY += mmInPx
+                idx++
+            }
+        }
     }
 }

@@ -105,7 +105,7 @@ fun OnboardingTutorialOverlay(
                             contentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
                     ) {
-                        Text("跳過", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                        Text(viewModel.getString("skip"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
 
@@ -146,19 +146,19 @@ fun OnboardingTutorialOverlay(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         val titleText = when (page) {
-                            0 -> "歡迎使用行動智慧測量"
-                            1 -> "1. AR 相機空間測量"
-                            2 -> "2. 螢幕多維直尺"
-                            3 -> "3. 泡泡高精度水平儀"
-                            else -> "4. 個人化偏好設定"
+                            0 -> viewModel.getString("onboarding_title_1")
+                            1 -> viewModel.getString("onboarding_title_2")
+                            2 -> viewModel.getString("onboarding_title_3")
+                            3 -> viewModel.getString("onboarding_title_4")
+                            else -> viewModel.getString("onboarding_title_5")
                         }
 
                         val descText = when (page) {
-                            0 -> "集相機雷射投影、數位直尺及泡泡水平儀於一身。只需幾秒，為您快速提供精準的物理測量！"
-                            1 -> "透過智慧幾何投影技術。您可以利用【預設持機高度】（例如眼睛/腰部高度），對準地面或牆角起點，並在地毯、物件底座多點連線，輕鬆測得物體長度、面積或高度。"
-                            2 -> "將小型物品直接放到螢幕上！提供高解析度刻度尺，並可在頂部快速點選切換「公分」與「英吋」單位。"
-                            3 -> "結合手機內的重力感應儀與陀螺儀，完美水平 0° 將發出【觸覺震動】，幫您確認相框與傢俱擺設是否貼平！"
-                            else -> "您可以自訂持機高度、設定傳感器平滑化雜訊過濾度，或在 Android 12+ 手機開啟 Material You 動態色彩！隨時可以到【設定】（右上角 ⚙️）調整。"
+                            0 -> viewModel.getString("onboarding_desc_1")
+                            1 -> viewModel.getString("perm_camera_desc") // Reusing perm desc as it matches context well enough or I can use the long one
+                            2 -> viewModel.getString("onboarding_desc_3")
+                            3 -> viewModel.getString("onboarding_desc_4")
+                            else -> viewModel.getString("onboarding_desc_5")
                         }
 
                         Text(
@@ -196,9 +196,9 @@ fun OnboardingTutorialOverlay(
                             shape = RoundedCornerShape(14.dp),
                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
                         ) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "上一步", modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.ArrowBack, contentDescription = viewModel.getString("prev_step"), modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("上一步", style = MaterialTheme.typography.labelLarge)
+                            Text(viewModel.getString("prev_step"), style = MaterialTheme.typography.labelLarge)
                         }
                     } else {
                         // Dummy spacer to keep Next button biased right
@@ -211,9 +211,9 @@ fun OnboardingTutorialOverlay(
                             shape = RoundedCornerShape(14.dp),
                             contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp)
                         ) {
-                            Text("下一步", style = MaterialTheme.typography.labelLarge)
+                            Text(viewModel.getString("next_step"), style = MaterialTheme.typography.labelLarge)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Icon(Icons.Default.ArrowForward, contentDescription = "下一步", modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.ArrowForward, contentDescription = viewModel.getString("next_step"), modifier = Modifier.size(16.dp))
                         }
                     } else {
                         Button(
@@ -222,9 +222,9 @@ fun OnboardingTutorialOverlay(
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                             contentPadding = PaddingValues(horizontal = 28.dp, vertical = 10.dp)
                         ) {
-                            Icon(Icons.Default.Check, contentDescription = "開始使用", modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Check, contentDescription = viewModel.getString("get_started"), modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("開始使用", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold)
+                            Text(viewModel.getString("get_started"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold)
                         }
                     }
                 }

@@ -34,7 +34,8 @@ fun SurfaceLevelComponent(
     roll: Float,   // 左右偏擺 (旋轉)
     vibrateOnAlignment: Boolean = true,
     onCalibrate: () -> Unit = {},
-    onReset: () -> Unit = {}
+    onReset: () -> Unit = {},
+    viewModel: com.example.ui.viewmodel.MeasureViewModel
 ) {
     // 判定水平標準
     val isPerfectLevel = abs(roll) < 0.2f && abs(pitch) < 0.2f
@@ -148,7 +149,7 @@ fun SurfaceLevelComponent(
                 exit = fadeOut() + shrinkVertically()
             ) {
                 Text(
-                    text = if (isPerfectLevel) "已校準 (0.0° LOCKED)" else "調整水平線以歸零",
+                    text = if (isPerfectLevel) viewModel.getString("mode_tracking") else viewModel.getString("onboarding_title_3"),
                     style = MaterialTheme.typography.labelLarge,
                     color = if (isPerfectLevel) displayColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     fontWeight = FontWeight.Bold
@@ -158,6 +159,47 @@ fun SurfaceLevelComponent(
 
         // 極簡水平線元件
         LaserLevelLine(roll = roll, pitch = pitch, isLevel = isPerfectLevel, color = displayColor)
+
+        // 2D 氣泡水平儀感應器
+        Box(modifier = Modifier.size(200.dp), contentAlignment = Alignment.Center) {
+            val animatedPitch by animateFloatAsState(
+                targetValue = pitch.coerceIn(-15f, 15f),
+                animationSpec = spring(stiffness = Spring.StiffnessLow),
+                label = "pitchBubble"
+            )
+            val animatedRollBubble by animateFloatAsState(
+                targetValue = roll.coerceIn(-15f, 15f),
+                animationSpec = spring(stiffness = Spring.StiffnessLow),
+                label = "rollBubble"
+            )
+            
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val maxOffset = 80.dp.toPx()
+                
+                // 氣泡位置計算 (將角度映射到偏移量)
+                val offsetX = (animatedRollBubble / 15f) * maxOffset
+                val offsetY = (animatedPitch / 15f) * maxOffset
+                
+                // 繪製移動氣泡
+                drawCircle(
+                    color = displayColor.copy(alpha = if (isPerfectLevel) 0.8f else 0.4f),
+                    radius = 16.dp.toPx(),
+                    center = Offset(cx + offsetX, cy + offsetY)
+                )
+                
+                // 完美水平時的中心閃爍環
+                if (isPerfectLevel) {
+                    drawCircle(
+                        color = displayColor.copy(alpha = 0.3f),
+                        radius = 20.dp.toPx(),
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 2.dp.toPx())
+                    )
+                }
+            }
+        }
 
         // 底部校準控制
         Row(
@@ -169,9 +211,9 @@ fun SurfaceLevelComponent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = onReset) {
-                Icon(Icons.Default.Refresh, contentDescription = "重設校準偏置", modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Refresh, contentDescription = viewModel.getString("reset_deviation"), modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("重置")
+                Text(viewModel.getString("undo"))
             }
             Box(Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant))
             Button(
@@ -179,9 +221,9 @@ fun SurfaceLevelComponent(
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = MaterialTheme.colorScheme.primary),
                 elevation = null
             ) {
-                Icon(Icons.Default.Balance, contentDescription = "立即歸零校準", modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Balance, contentDescription = viewModel.getString("calibration_zero"), modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("目前位置設為零點", fontWeight = FontWeight.Bold)
+                Text(viewModel.getString("calibration_zero"), fontWeight = FontWeight.Bold)
             }
         }
         
@@ -198,7 +240,7 @@ fun SurfaceLevelComponent(
                     .background(MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small)
                     .padding(horizontal = 12.dp, vertical = 4.dp)
             ) {
-                Text("已達到水平點", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                Text(viewModel.getString("mode_tracking"), color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
             }
         }
     }

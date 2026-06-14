@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -142,6 +144,14 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
     private val _selectedUnit = MutableStateFlow("cm") // "cm", "m", "in", "ft"
     val selectedUnit: StateFlow<String> = _selectedUnit.asStateFlow()
 
+    private val _rulerCalibration = MutableStateFlow(1.0f)
+    val rulerCalibration: StateFlow<Float> = _rulerCalibration.asStateFlow()
+
+    fun updateRulerCalibration(factor: Float) {
+        _rulerCalibration.value = factor
+        prefs.edit().putFloat("ruler_calibration", factor).apply()
+    }
+
     private val _cameraHeightCm = MutableStateFlow(140f) // 預設持手機高度 140 公分
     val cameraHeightCm: StateFlow<Float> = _cameraHeightCm.asStateFlow()
 
@@ -257,6 +267,7 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
 
         // Load settings data
         _selectedUnit.value = prefs.getString("selected_unit", "cm") ?: "cm"
+        _rulerCalibration.value = prefs.getFloat("ruler_calibration", 1.0f)
         _cameraHeightCm.value = prefs.getFloat("default_camera_height_cm", 140f)
         _sensorAlpha.value = prefs.getFloat("sensor_alpha", 0.2f)
         _vibrateOnAlignment.value = prefs.getBoolean("vibrate_on_alignment", true)
@@ -344,6 +355,44 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
             return sum
         }
 
+    // Computed area of the horizontal polygon enclosed by the captured points (Shoelace formula)
+    val totalEnclosedArea: Double
+        get() {
+            if (capturedPoints.size < 3) return 0.0
+            var sum = 0.0
+            val n = capturedPoints.size
+            for (i in 0 until n) {
+                val p1 = capturedPoints[i]
+                val p2 = capturedPoints[(i + 1) % n]
+                // Shoelace formula on X-Z ground plane (since vertical axis in ARCore is Y)
+                sum += (p1.x * p2.z - p2.x * p1.z)
+            }
+            return abs(sum) / 2.0
+        }
+
+    fun formatAreaValue(squareMeters: Double): String {
+        return when (_selectedUnit.value) {
+            "cm" -> {
+                if (squareMeters < 0.1) {
+                    val sqCm = squareMeters * 10000.0
+                    String.format("%.1f cm²", sqCm)
+                } else {
+                    String.format("%.2f m²", squareMeters)
+                }
+            }
+            "m" -> String.format("%.2f m²", squareMeters)
+            "in" -> {
+                val sqIn = squareMeters * 1550.003
+                String.format("%.1f in²", sqIn)
+            }
+            "ft" -> {
+                val sqFt = squareMeters * 10.7639
+                String.format("%.2f ft²", sqFt)
+            }
+            else -> String.format("%.2f m²", squareMeters)
+        }
+    }
+
     // Pocket Ruler Callipers (State in DP offset from center)
     private val _rulerCaliperLeft = MutableStateFlow(-120.0f)
     val rulerCaliperLeft: StateFlow<Float> = _rulerCaliperLeft.asStateFlow()
@@ -423,6 +472,24 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         clearActivePoints()
     }
 
+    private fun triggerHapticFeedback() {
+        // This will be called via an flow/event that the UI observes
+        viewModelScope.launch {
+            _hapticEvent.emit(Unit)
+        }
+    }
+
+    private val _hapticEvent = MutableSharedFlow<Unit>(replay = 0)
+    val hapticEvent = _hapticEvent.asSharedFlow()
+
+    fun isAutoMeasuringHeight(currentPitch: Float): Boolean {
+        if (capturedPoints.isEmpty()) return false
+        val basePoint = capturedPoints.first()
+        val pitchDiff = currentPitch - basePoint.pitch
+        // 如果俯仰角向上抬起超過 5 度，或者目前角度接近水平/朝上（小於 -15 度表示朝下）
+        return pitchDiff > 5.0f || currentPitch > -15.0f
+    }
+
     fun updateRulerCalipers(left: Float, right: Float) {
         _rulerCaliperLeft.value = left
         _rulerCaliperRight.value = right
@@ -433,6 +500,9 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         val currentPitch = _pitch.value
         val currentYaw = _yaw.value
         val camHeightM = cameraHeightCm.value / 100.0
+        
+        // Trigger haptic feedback for point capture
+        triggerHapticFeedback()
         
         // 嘗試使用 ARCore HitTest
         var arPoint: Point3D? = null
@@ -466,29 +536,31 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
             }
         }
 
-        val point = arPoint ?: if (_cameraMeasureSubMode.value == 0) {
+        val isHeight = isAutoMeasuringHeight(currentPitch)
+        val point = arPoint ?: if (!isHeight) {
             // Ground project
-            measureEngine.calculateGroundPoint(currentPitch, currentYaw, camHeightM)
+            val groundPoint = measureEngine.calculateGroundPoint(currentPitch, currentYaw, camHeightM)
+            if (capturedPoints.isEmpty()) {
+                _lockedBaseDistance.value = sqrt(groundPoint.x.pow(2) + groundPoint.y.pow(2))
+            }
+            groundPoint
         } else {
             // Height mode: base locking
-            val baseDist = _lockedBaseDistance.value
-            if (baseDist == null) {
-                // First click: Lock the base
+            val baseDist = _lockedBaseDistance.value ?: run {
                 val groundPoint = measureEngine.calculateGroundPoint(currentPitch, currentYaw, camHeightM)
-                _lockedBaseDistance.value = sqrt(groundPoint.x.pow(2) + groundPoint.y.pow(2))
-                groundPoint
-            } else {
-                // Second click: lock top altitude
-                val zHeight = measureEngine.calculateVerticalHeight(baseDist, currentPitch, camHeightM)
-                val yawRad = Math.toRadians(currentYaw.toDouble())
-                Point3D(
-                    x = baseDist * sin(yawRad),
-                    y = baseDist * cos(yawRad),
-                    z = zHeight,
-                    pitch = currentPitch,
-                    yaw = currentYaw
-                )
+                val d = sqrt(groundPoint.x.pow(2) + groundPoint.y.pow(2))
+                _lockedBaseDistance.value = d
+                d
             }
+            val zHeight = measureEngine.calculateVerticalHeight(baseDist, currentPitch, camHeightM)
+            val yawRad = Math.toRadians(currentYaw.toDouble())
+            Point3D(
+                x = baseDist * sin(yawRad),
+                y = baseDist * cos(yawRad),
+                z = zHeight,
+                pitch = currentPitch,
+                yaw = currentYaw
+            )
         }
         
         capturedPoints.add(point)
@@ -520,7 +592,8 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
         val currentYaw = _yaw.value
         val camHeightM = cameraHeightCm.value / 100.0
         
-        if (_cameraMeasureSubMode.value == 0) {
+        val isHeight = isAutoMeasuringHeight(currentPitch)
+        if (!isHeight) {
             // Horizontal multi-point distance
             val currentGroundPoint = measureEngine.calculateGroundPoint(currentPitch, currentYaw, camHeightM)
             
@@ -538,7 +611,7 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
             // Altitude height meter
             val baseDist = _lockedBaseDistance.value
             if (baseDist == null) {
-                return "請瞄準底部並點擊 +"
+                return getString("diagnostics_status_searching")
             } else {
                 val zHeight = measureEngine.calculateVerticalHeight(baseDist, currentPitch, camHeightM)
                 return formatLengthValue(zHeight)
@@ -548,12 +621,17 @@ class MeasureViewModel(application: Application) : AndroidViewModel(application)
 
     fun saveCurrentMeasurement(customLabel: String? = null, customNotes: String? = null) {
         viewModelScope.launch {
-            val label = customLabel ?: if (_cameraMeasureSubMode.value == 0) {
-                if (capturedPoints.size >= 2) "測量長度" else "地面距離"
-            } else "高度"
+            val isHeight = if (capturedPoints.isNotEmpty()) {
+                isAutoMeasuringHeight(capturedPoints.last().pitch)
+            } else {
+                false
+            }
+            val label = customLabel ?: if (!isHeight) {
+                if (capturedPoints.size >= 2) getString("default_record_name_long") else getString("default_record_name_dist")
+            } else getString("onboarding_title_2") // or just "Height"
             
             var measuredValue = 0.0
-            if (_cameraMeasureSubMode.value == 0) {
+            if (!isHeight) {
                 if (capturedPoints.size >= 2) {
                     // Sum distances up
                     var accum = 0.0

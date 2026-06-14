@@ -41,7 +41,6 @@ import androidx.compose.ui.platform.testTag
 import android.app.Activity
 import com.example.logic.ShareUtility
 import android.widget.Toast
-import androidx.compose.material.icons.filled.Screenshot
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -57,6 +56,7 @@ import com.example.ui.viewmodel.MeasureViewModel
 import com.example.ui.viewmodel.Point3D
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.shouldShowRationale
 import com.google.accompanist.permissions.rememberPermissionState
 import kotlinx.coroutines.launch
 import kotlin.math.*
@@ -90,11 +90,21 @@ fun CameraViewComponent(
     val projectionMatrix by viewModel.projectionMatrix.collectAsState()
     val arPlanes = viewModel.arPlanes
     
+    val currentLang by viewModel.currentLanguage.collectAsState()
+    
     val activePoints = viewModel.capturedPoints
     
     // Manage dynamic ripple pings at capture coordinates
     val pings = remember { mutableStateListOf<Pair<Offset, Animatable<Float, AnimationVector1D>>>() }
     val coroutineScope = rememberCoroutineScope()
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+
+    // Observe haptic events from ViewModel
+    LaunchedEffect(Unit) {
+        viewModel.hapticEvent.collect {
+            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+        }
+    }
 
     val colorPrimary = MaterialTheme.colorScheme.primary
     val colorPrimaryContainer = MaterialTheme.colorScheme.primaryContainer
@@ -107,24 +117,22 @@ fun CameraViewComponent(
     val colorOutline = MaterialTheme.colorScheme.outline
     val colorBackground = MaterialTheme.colorScheme.background
 
-    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-
     // Infinite transitions for smooth breathing and radar scan ripples
     val infiniteTransition = rememberInfiniteTransition(label = "RadarPulse")
     val breatheScale by infiniteTransition.animateFloat(
         initialValue = 0.94f,
         targetValue = 1.06f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1600, easing = FastOutSlowInEasing),
+            animation = tween(2000, easing = CubicBezierEasing(0.4f, 0.0f, 0.2f, 1f)),
             repeatMode = RepeatMode.Reverse
         ),
         label = "breatheScale"
     )
     val radarWaveRadius by infiniteTransition.animateFloat(
-        initialValue = 12f,
-        targetValue = 44f,
+        initialValue = 15f,
+        targetValue = 50f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = LinearOutSlowInEasing),
+            animation = tween(1500, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)),
             repeatMode = RepeatMode.Restart
         ),
         label = "radarWaveRadius"
@@ -178,7 +186,7 @@ fun CameraViewComponent(
         }
     }
 
-    // ARCore Frame update loop - only active when arCoreActive is false (to keep session synced, though normally not needed as GL view drives loop)
+    // ARCore Frame update loop
     LaunchedEffect(arCoreState, arCoreActive) {
         if (arCoreState == "SUPPORTED_INSTALLED" && !arCoreActive) {
             while (true) {
@@ -187,11 +195,9 @@ fun CameraViewComponent(
                     try {
                         val frame = session.update()
                         viewModel.updateArFrame(frame)
-                    } catch (e: Exception) {
-                        // Log or handle tracking failures
-                    }
+                    } catch (e: Exception) {}
                 }
-                kotlinx.coroutines.delay(16) // ~60fps update matching high frame-rate screen output
+                kotlinx.coroutines.delay(16)
             }
         }
     }
@@ -200,20 +206,18 @@ fun CameraViewComponent(
     DisposableEffect(Unit) {
         viewModel.startListening()
         onDispose {
-            // Do not stop listening here, as sensors are shared across modes
-            // and managed by the global Activity/ViewModel lifecycle.
             viewModel.destroyArCore()
         }
     }
 
     // Start ARCore checking only after camera permission is granted
-    LaunchedEffect(cameraPermissionState.status.isGranted) {
+     LaunchedEffect(cameraPermissionState.status.isGranted) {
         if (cameraPermissionState.status.isGranted) {
             viewModel.checkArCoreSupport(context)
         }
     }
 
-    // CameraX Lifecycle management: ensuring unbindAll happens on dispose to prevent BufferQueue abandonment
+    // CameraX Lifecycle management
     DisposableEffect(Unit) {
         onDispose {
             try {
@@ -222,13 +226,9 @@ fun CameraViewComponent(
                     try {
                         val cameraProvider = cameraProviderFuture.get()
                         cameraProvider.unbindAll()
-                    } catch (e: Exception) {
-                        Log.e("CameraViewComponent", "Error in onDispose camera listener unbind", e)
-                    }
+                    } catch (e: Exception) {}
                 }, androidx.core.content.ContextCompat.getMainExecutor(context))
-            } catch (e: Exception) {
-                Log.e("CameraViewComponent", "Error unbinding camera on dispose", e)
-            }
+            } catch (e: Exception) {}
         }
     }
 
@@ -247,33 +247,69 @@ fun CameraViewComponent(
             ) {
                 Icon(
                     Icons.Default.CameraAlt,
-                    contentDescription = "相機",
+                    contentDescription = null,
                     tint = colorPrimary,
-                    modifier = Modifier.size(72.dp)
+                    modifier = Modifier.size(80.dp)
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(24.dp))
                 Text(
-                    text = "相機即時測量儀需要相機權限",
-                    style = MaterialTheme.typography.titleMedium,
+                    text = viewModel.getString("perm_camera_title"),
+                    style = MaterialTheme.typography.headlineSmall,
                     color = colorOnSurface,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.ExtraBold,
                     textAlign = TextAlign.Center
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                val status = cameraPermissionState.status
+                val infoText = if (status.shouldShowRationale) {
+                    viewModel.getString("perm_camera_rationale")
+                } else {
+                    viewModel.getString("perm_camera_desc")
+                }
+                
                 Text(
-                    text = "此工具利用相機畫面作為目視準心，並搭配手機重力與陀螺儀感應器，透過三角函數即時算出物體與地面的長度。",
-                    style = MaterialTheme.typography.bodySmall,
+                    text = infoText,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = colorOnSurfaceVariant,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(32.dp))
+                
                 Button(
                     onClick = { cameraPermissionState.launchPermissionRequest() },
                     colors = ButtonDefaults.buttonColors(containerColor = colorPrimary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                    shape = MaterialTheme.shapes.medium
+                    shape = MaterialTheme.shapes.large,
+                    modifier = Modifier.fillMaxWidth(0.8f).height(56.dp)
                 ) {
-                    Text("授與相機權限")
+                    Text(viewModel.getString("btn_grant_perm"), fontWeight = FontWeight.Bold)
+                }
+                
+                if (!status.shouldShowRationale) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    TextButton(onClick = {
+                        val intent = android.content.Intent(
+                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.fromParts("package", context.packageName, null)
+                        )
+                        context.startActivity(intent)
+                    }) {
+                        Text(
+                            viewModel.getString("btn_open_settings"),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = colorPrimary
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = viewModel.getString("perm_camera_denied"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colorOnSurfaceVariant.copy(alpha = 0.6f),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
                 }
             }
         }
@@ -303,13 +339,21 @@ fun CameraViewComponent(
                             detectTapGestures { offset ->
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                 
-                                // Trigger persistent visual ping ripple
-                                val pingAnim = Animatable(0f)
-                                val pingPair = offset to pingAnim
-                                pings.add(pingPair)
+                                // Trigger persistent visual multi-ripple ping
+                                val pingAnim1 = Animatable(0f)
+                                val pingAnim2 = Animatable(0f)
+                                val pingPair1 = offset to pingAnim1
+                                val pingPair2 = offset to pingAnim2
+                                pings.add(pingPair1)
                                 coroutineScope.launch {
-                                    pingAnim.animateTo(1f, animationSpec = tween(600, easing = LinearOutSlowInEasing))
-                                    pings.remove(pingPair)
+                                    pingAnim1.animateTo(1f, animationSpec = tween(800, easing = LinearOutSlowInEasing))
+                                    pings.remove(pingPair1)
+                                }
+                                coroutineScope.launch {
+                                    kotlinx.coroutines.delay(180)
+                                    pings.add(pingPair2)
+                                    pingAnim2.animateTo(1f, animationSpec = tween(600, easing = LinearOutSlowInEasing))
+                                    pings.remove(pingPair2)
                                 }
                                 
                                 // Sync geometry info before hitTest to ensure pixel-to-world accuracy
@@ -353,13 +397,21 @@ fun CameraViewComponent(
                             detectTapGestures { offset ->
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                 
-                                // Trigger persistent visual ping ripple
-                                val pingAnim = Animatable(0f)
-                                val pingPair = offset to pingAnim
-                                pings.add(pingPair)
+                                // Trigger persistent visual multi-ripple ping
+                                val pingAnim1 = Animatable(0f)
+                                val pingAnim2 = Animatable(0f)
+                                val pingPair1 = offset to pingAnim1
+                                val pingPair2 = offset to pingAnim2
+                                pings.add(pingPair1)
                                 coroutineScope.launch {
-                                    pingAnim.animateTo(1f, animationSpec = tween(600, easing = LinearOutSlowInEasing))
-                                    pings.remove(pingPair)
+                                    pingAnim1.animateTo(1f, animationSpec = tween(800, easing = LinearOutSlowInEasing))
+                                    pings.remove(pingPair1)
+                                }
+                                coroutineScope.launch {
+                                    kotlinx.coroutines.delay(180)
+                                    pings.add(pingPair2)
+                                    pingAnim2.animateTo(1f, animationSpec = tween(600, easing = LinearOutSlowInEasing))
+                                    pings.remove(pingPair2)
                                 }
                                 
                                 // Sync geometry info before hitTest to ensure pixel-to-world accuracy
@@ -439,6 +491,41 @@ fun CameraViewComponent(
 
                 val screenPoints = activePoints.map { projectPoint(it) }
 
+                // 2.05 Draw closed polygon filling if >= 3 points on horizontal ground mode
+                if (activePoints.size >= 3 && !viewModel.isAutoMeasuringHeight(pitch)) {
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        var first = true
+                        screenPoints.forEach { pt ->
+                            if (pt != null) {
+                                if (first) {
+                                    moveTo(pt.x, pt.y)
+                                    first = false
+                                } else {
+                                    lineTo(pt.x, pt.y)
+                                }
+                            }
+                        }
+                        close()
+                    }
+                    drawPath(
+                        path = path,
+                        color = colorPrimary.copy(alpha = 0.15f)
+                    )
+                    
+                    // Also draw a dashed line connecting last point back to first point
+                    val pFirst = screenPoints.first()
+                    val pLast = screenPoints.last()
+                    if (pFirst != null && pLast != null) {
+                        drawLine(
+                            color = colorPrimary.copy(alpha = 0.5f),
+                            start = pLast,
+                            end = pFirst,
+                            strokeWidth = 3f,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 15f), dashOffset)
+                        )
+                    }
+                }
+
                 // Draw existing segments
                 for (i in 0 until activePoints.size - 1) {
                     val p1 = screenPoints[i]
@@ -507,7 +594,7 @@ fun CameraViewComponent(
                 }
 
                 // Draw live connection stretching to central target
-                if (activePoints.isNotEmpty() && subMode == 0) {
+                if (activePoints.isNotEmpty() && !viewModel.isAutoMeasuringHeight(pitch)) {
                     val lastProjected = screenPoints.last()
                     if (lastProjected != null) {
                         // High-contrast back dashes
@@ -757,28 +844,7 @@ fun CameraViewComponent(
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically()
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.4f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = colorPrimary)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            "正在掃描環境...",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            "請緩慢左右移動手機，直到系統鎖定地面",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.8f)
-                        )
-                    }
-                }
+                ARCalibrationOverlay(accentColor = colorPrimary, viewModel = viewModel)
             }
 
     // 3. Central Target Crosshair Viewport Overlay
@@ -858,26 +924,24 @@ fun CameraViewComponent(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.Top
                 ) {
-                    // Mode Badge
+                    // AI Auto Mode Badge
                     Surface(
                         color = colorSurface.copy(alpha = 0.6f),
                         shape = MaterialTheme.shapes.medium
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clickable { viewModel.setCameraMeasureSubMode(if (subMode == 0) 1 else 0) }
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
                             Icon(
-                                if (subMode == 0) Icons.Default.CameraAlt else Icons.Default.Height,
-                                contentDescription = if (subMode == 0) "已啟用水平投影測距模式" else "已啟用垂直高度測量模式",
+                                Icons.Default.AutoMode,
+                                contentDescription = "自動測量模式",
                                 tint = colorTertiary,
                                 modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (subMode == 0) "水平測距" else "垂直測高",
+                                text = viewModel.getString("mode_simulation"),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = colorOnSurface,
                                 fontWeight = FontWeight.Bold
@@ -891,9 +955,9 @@ fun CameraViewComponent(
                             val isAutoCalibrating = arTrackingState == com.google.ar.core.TrackingState.TRACKING
                             
                             val trackingLevelTitle = when (arTrackingState) {
-                                com.google.ar.core.TrackingState.TRACKING -> "追蹤中 (精確)"
-                                com.google.ar.core.TrackingState.PAUSED -> "追蹤暫停"
-                                else -> "正在尋找平面..."
+                                com.google.ar.core.TrackingState.TRACKING -> viewModel.getString("diagnostics_status_tracking")
+                                com.google.ar.core.TrackingState.PAUSED -> viewModel.getString("mode_paused")
+                                else -> viewModel.getString("diagnostics_status_searching")
                             }
                             val trackingColor = when (arTrackingState) {
                                 com.google.ar.core.TrackingState.TRACKING -> colorPrimary
@@ -917,7 +981,7 @@ fun CameraViewComponent(
                             
                             if (isAutoCalibrating) {
                                 Text(
-                                    text = "高度已自動校正: ${cameraHeightCm.toInt()}cm",
+                                    text = "${viewModel.getString("diagnostics_auto_height")}: ${cameraHeightCm.toInt()}cm",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = colorOnSurfaceVariant.copy(alpha = 0.7f),
                                     fontSize = 9.sp
@@ -928,12 +992,33 @@ fun CameraViewComponent(
 
                         if (activePoints.size >= 2) {
                             Text(
-                                text = "總長: ${viewModel.formatLengthValue(viewModel.totalPathDistance)}",
+                                text = "${viewModel.getString("ar_perimeter")}: ${viewModel.formatLengthValue(viewModel.totalPathDistance)}",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = colorTertiary,
                                 fontWeight = FontWeight.Bold
                             )
                         }
+                        if (activePoints.size >= 3 && !viewModel.isAutoMeasuringHeight(pitch)) {
+                            Text(
+                                text = "${viewModel.getString("ar_area")}: ${viewModel.formatAreaValue(viewModel.totalEnclosedArea)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = colorPrimary,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        val isHeight = viewModel.isAutoMeasuringHeight(pitch)
+                        Text(
+                            text = if (activePoints.isEmpty()) {
+                                viewModel.getString("diagnostics_status_searching")
+                            } else if (isHeight) {
+                                if (currentLang.startsWith("zh")) "正在測量高度..." else "Measuring Height..."
+                            } else {
+                                if (currentLang.startsWith("zh")) "正在測量地面距離..." else "Measuring Ground..."
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colorTertiary.copy(alpha = 0.8f),
+                            fontWeight = FontWeight.Bold
+                        )
                         Text(
                             text = viewModel.getLiveDistanceText(),
                             style = MaterialTheme.typography.displaySmall,
@@ -941,7 +1026,7 @@ fun CameraViewComponent(
                             fontWeight = FontWeight.Black
                         )
                         Text(
-                            text = if (selectedUnit == "m") "公尺 (m)" else "公分 (cm)",
+                            text = if (selectedUnit == "m") viewModel.getString("unit_meter") else viewModel.getString("unit_cm"),
                             style = MaterialTheme.typography.labelSmall,
                             color = colorOnSurfaceVariant
                         )
@@ -968,10 +1053,10 @@ fun CameraViewComponent(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = when {
-                            arCoreState != "SUPPORTED_INSTALLED" -> "感測器模擬模式"
-                            arTrackingState == com.google.ar.core.TrackingState.TRACKING -> "AR 精準追蹤中"
-                            arTrackingState == com.google.ar.core.TrackingState.PAUSED -> "AR 追蹤已暫停"
-                            else -> "AR 初始化中..."
+                            arCoreState != "SUPPORTED_INSTALLED" -> viewModel.getString("mode_simulation")
+                            arTrackingState == com.google.ar.core.TrackingState.TRACKING -> viewModel.getString("mode_tracking")
+                            arTrackingState == com.google.ar.core.TrackingState.PAUSED -> viewModel.getString("mode_paused")
+                            else -> viewModel.getString("mode_initializing")
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = colorOnSurface.copy(alpha = 0.6f),
@@ -1031,14 +1116,14 @@ fun CameraViewComponent(
                                         }
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = if (pt.label.isNotBlank()) pt.label else "添加標籤",
+                                            text = if (pt.label.isNotBlank()) pt.label else viewModel.getString("add_label"),
                                             color = colorOnSurface,
                                             style = MaterialTheme.typography.labelSmall
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Icon(
                                             imageVector = Icons.Default.Edit,
-                                            contentDescription = "編輯標籤",
+                                            contentDescription = viewModel.getString("edit_label"),
                                             tint = colorOnSurface.copy(alpha = 0.6f),
                                             modifier = Modifier.size(12.dp)
                                         )
@@ -1082,8 +1167,32 @@ fun CameraViewComponent(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Left column: Info or empty
-                    Spacer(modifier = Modifier.size(54.dp))
+                    // Left column: Take Photo Button
+                    IconButton(
+                        onClick = {
+                            val activity = context as? Activity
+                            val window = activity?.window
+                            if (window != null) {
+                                ShareUtility.captureScreen(window, view) { uri ->
+                                    if (uri != null) {
+                                        Toast.makeText(context, viewModel.getString("photo_saved"), Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, viewModel.getString("photo_save_failed"), Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .size(54.dp)
+                            .background(colorSurface.copy(alpha = 0.6f), CircleShape)
+                            .testTag("ar_photo_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CameraAlt,
+                            contentDescription = viewModel.getString("take_photo"),
+                            tint = colorPrimary
+                        )
+                    }
 
                     // Main Action (+)
                     LargeFloatingActionButton(
@@ -1100,7 +1209,7 @@ fun CameraViewComponent(
                             .testTag("add_point_fab")
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Add, "新增測量錨點", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(36.dp))
+                            Icon(Icons.Default.Add, viewModel.getString("add_anchor"), tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(36.dp))
                         }
                     }
 
@@ -1114,7 +1223,7 @@ fun CameraViewComponent(
                                     .background(colorSurface.copy(alpha = 0.6f), CircleShape)
                                     .testTag("undo_button")
                             ) {
-                                Icon(Icons.Default.Refresh, "撤銷", tint = colorOnSurface)
+                                Icon(Icons.Default.Refresh, viewModel.getString("undo"), tint = colorOnSurface)
                             }
                             Spacer(modifier = Modifier.width(12.dp))
                         }
@@ -1140,7 +1249,7 @@ fun CameraViewComponent(
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     if (activePoints.isNotEmpty()) Icons.Default.Save else Icons.Default.History,
-                                    contentDescription = if (activePoints.isNotEmpty()) "儲存當前測量" else "開啟歷史紀錄清單",
+                                    contentDescription = if (activePoints.isNotEmpty()) viewModel.getString("save_measurement") else viewModel.getString("view_history"),
                                     tint = if (activePoints.isNotEmpty()) MaterialTheme.colorScheme.onTertiary else colorOnSurface,
                                     modifier = Modifier.size(24.dp)
                                 )
@@ -1148,31 +1257,6 @@ fun CameraViewComponent(
                         }
                     }
                 }
-            }
-
-            // 6. Screenshot FAB
-            FloatingActionButton(
-                onClick = {
-                    val activity = context as? Activity
-                    val window = activity?.window
-                    if (window != null) {
-                        ShareUtility.captureScreen(window, view) { uri ->
-                            if (uri != null) {
-                                Toast.makeText(context, "截圖已儲存至相簿", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, "截圖失敗", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 16.dp)
-                    .testTag("screenshot_fab"),
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-            ) {
-                Icon(Icons.Default.Screenshot, contentDescription = "截圖")
             }
         }
     }
@@ -1182,11 +1266,11 @@ fun CameraViewComponent(
         AlertDialog(
             onDismissRequest = { editingPointIndex = null },
             containerColor = colorSurfaceContainer,
-            title = { Text("編輯標註點 #${index + 1} 標籤", color = colorOnSurface, fontWeight = FontWeight.Bold) },
+            title = { Text("${viewModel.getString("edit_label_title")} #${index + 1}", color = colorOnSurface, fontWeight = FontWeight.Bold) },
             text = {
                 Column {
                     Text(
-                        "為此 AR 空間標記點指派一個說明（例如：桌子起點、牆角、高度上限）。這將出現在 3D 空間視圖與匯出的報告佈置圖中。",
+                        viewModel.getString("edit_label_desc"),
                         style = MaterialTheme.typography.bodySmall,
                         color = colorOnSurfaceVariant
                     )
@@ -1194,7 +1278,7 @@ fun CameraViewComponent(
                     OutlinedTextField(
                         value = pointLabelInputState,
                         onValueChange = { pointLabelInputState = it },
-                        label = { Text("標註點標籤") },
+                        label = { Text(viewModel.getString("label_placeholder")) },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = colorPrimary,
@@ -1216,7 +1300,7 @@ fun CameraViewComponent(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colorPrimary, contentColor = MaterialTheme.colorScheme.onPrimary)
                 ) {
-                    Text("儲存標籤")
+                    Text(viewModel.getString("save_label"))
                 }
             },
             dismissButton = {
@@ -1224,7 +1308,7 @@ fun CameraViewComponent(
                     onClick = { editingPointIndex = null },
                     colors = ButtonDefaults.textButtonColors(contentColor = colorOnSurface)
                 ) {
-                    Text("取消")
+                    Text(viewModel.getString("cancel"))
                 }
             }
         )
@@ -1235,11 +1319,11 @@ fun CameraViewComponent(
         AlertDialog(
             onDismissRequest = { showSaveMeasurementDialog = false },
             containerColor = colorSurfaceContainer,
-            title = { Text("儲存測量紀錄", color = colorOnSurface, fontWeight = FontWeight.Bold) },
+            title = { Text(viewModel.getString("save_record_title"), color = colorOnSurface, fontWeight = FontWeight.Bold) },
             text = {
                 Column {
                     Text(
-                        "保存本次 AR 空間測量數值、分段長度分析、標註點分佈以及 3D 投影佈線。您可以稍後將其匯出成圖片或 PDF 分享！",
+                        viewModel.getString("save_record_desc"),
                         style = MaterialTheme.typography.bodySmall,
                         color = colorOnSurfaceVariant
                     )
@@ -1247,7 +1331,7 @@ fun CameraViewComponent(
                     OutlinedTextField(
                         value = saveTitleTextState,
                         onValueChange = { saveTitleTextState = it },
-                        label = { Text("測量名稱 (例如：門框寬度、鋼琴長度)") },
+                        label = { Text(viewModel.getString("record_name_placeholder")) },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = colorPrimary,
@@ -1263,7 +1347,7 @@ fun CameraViewComponent(
                     OutlinedTextField(
                         value = saveNotesTextState,
                         onValueChange = { saveNotesTextState = it },
-                        label = { Text("可選附註備忘") },
+                        label = { Text(viewModel.getString("record_notes_placeholder")) },
                         maxLines = 3,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = colorPrimary,
@@ -1281,7 +1365,7 @@ fun CameraViewComponent(
                 Button(
                     onClick = {
                         val finalTitle = if (saveTitleTextState.isBlank()) {
-                            if (activePoints.size >= 2) "精密長度測量" else "定位點距離"
+                            if (activePoints.size >= 2) viewModel.getString("default_record_name_long") else viewModel.getString("default_record_name_dist")
                         } else saveTitleTextState
                         viewModel.saveCurrentMeasurement(finalTitle, saveNotesTextState)
                         showSaveMeasurementDialog = false
@@ -1289,7 +1373,7 @@ fun CameraViewComponent(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colorTertiary, contentColor = MaterialTheme.colorScheme.onTertiary)
                 ) {
-                    Text("確認儲存")
+                    Text(viewModel.getString("confirm_save"))
                 }
             },
             dismissButton = {
@@ -1297,7 +1381,7 @@ fun CameraViewComponent(
                     onClick = { showSaveMeasurementDialog = false },
                     colors = ButtonDefaults.textButtonColors(contentColor = colorOnSurface)
                 ) {
-                    Text("取消")
+                    Text(viewModel.getString("cancel"))
                 }
             }
         )
@@ -1305,7 +1389,7 @@ fun CameraViewComponent(
 }
 
 @Composable
-fun ARCalibrationOverlay(accentColor: Color) {
+fun ARCalibrationOverlay(accentColor: Color, viewModel: com.example.ui.viewmodel.MeasureViewModel) {
     val infiniteTransition = rememberInfiniteTransition(label = "CalibAnim")
     
     // Animation for the phone icon moving side to side
@@ -1408,14 +1492,14 @@ fun ARCalibrationOverlay(accentColor: Color) {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "正在初始化 AR 環境",
+                        text = viewModel.getString("initializing_ar"),
                         style = MaterialTheme.typography.titleMedium,
                         color = Color.White,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "請緩慢移動手機以掃描四周平面",
+                        text = viewModel.getString("scan_environment"),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.8f),
                         textAlign = TextAlign.Center

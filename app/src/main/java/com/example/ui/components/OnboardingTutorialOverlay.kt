@@ -18,10 +18,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -47,184 +49,188 @@ fun OnboardingTutorialOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.82f))
+            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.92f))
             .clickable(enabled = false) {} // block click propagation
-            .padding(16.dp),
-        contentAlignment = Alignment.Center
+            .windowInsetsPadding(WindowInsets.systemBars),
+        contentAlignment = Alignment.BottomCenter
     ) {
-        // Main glassmorphic card container
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentHeight()
-                .padding(vertical = 24.dp),
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 8.dp
+        // Main glassmorphic card container sliding from bottom
+        AnimatedVisibility(
+            visible = true,
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)
         ) {
-            Column(
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                    .wrapContentHeight(),
+                shape = RoundedCornerShape(32.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 12.dp,
+                shadowElevation = 8.dp
             ) {
-                // Header (Progress Dots & Skip)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Page indicator dots
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        for (i in 0 until totalPages) {
-                            val isActive = i == currentPage
-                            val width by animateDpAsState(
-                                targetValue = if (isActive) 16.dp else 6.dp,
-                                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(height = 6.dp, width = width)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (isActive) MaterialTheme.colorScheme.primary 
-                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                                    )
-                            )
-                        }
-                    }
-                    
-                    // Skip button
-                    TextButton(
-                        onClick = onDismiss,
-                        colors = ButtonDefaults.textButtonColors(
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    ) {
-                        Text(viewModel.getString("skip"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Page Animated Illustration Container
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(180.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-                    contentAlignment = Alignment.Center
+                        .padding(28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
-                    when (currentPage) {
-                        0 -> DrawWelcomeIllustration()
-                        1 -> DrawArCameraIllustration()
-                        2 -> DrawRulerIllustration()
-                        3 -> DrawLevelIllustration()
-                        4 -> DrawSettingsIllustration(viewModel)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Title & Instructions Content
-                AnimatedContent(
-                    targetState = currentPage,
-                    transitionSpec = {
-                        (fadeIn(animationSpec = tween(220, delayMillis = 90)) + 
-                         scaleIn(initialScale = 0.92f, animationSpec = tween(220, delayMillis = 90)))
-                            .togetherWith(fadeOut(animationSpec = tween(90)))
-                    },
-                    label = "textTransition"
-                ) { page ->
-                    Column(
+                    // Header (Progress Dots & Skip)
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val titleText = when (page) {
-                            0 -> viewModel.getString("onboarding_title_1")
-                            1 -> viewModel.getString("onboarding_title_2")
-                            2 -> viewModel.getString("onboarding_title_3")
-                            3 -> viewModel.getString("onboarding_title_4")
-                            else -> viewModel.getString("onboarding_title_5")
-                        }
-
-                        val descText = when (page) {
-                            0 -> viewModel.getString("onboarding_desc_1")
-                            1 -> viewModel.getString("perm_camera_desc") // Reusing perm desc as it matches context well enough or I can use the long one
-                            2 -> viewModel.getString("onboarding_desc_3")
-                            3 -> viewModel.getString("onboarding_desc_4")
-                            else -> viewModel.getString("onboarding_desc_5")
-                        }
-
-                        Text(
-                            text = titleText,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            textAlign = TextAlign.Center
-                        )
-                        
-                        Spacer(modifier = Modifier.height(12.dp))
-                        
-                        Text(
-                            text = descText,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 22.sp,
-                            modifier = Modifier.padding(horizontal = 8.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                // Footer Buttons (Prev / Next)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (currentPage > 0) {
-                        OutlinedButton(
-                            onClick = { currentPage-- },
-                            shape = RoundedCornerShape(14.dp),
-                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
+                        // Page indicator dots
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = viewModel.getString("prev_step"), modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(viewModel.getString("prev_step"), style = MaterialTheme.typography.labelLarge)
+                            for (i in 0 until totalPages) {
+                                val isActive = i == currentPage
+                                val width by animateDpAsState(
+                                    targetValue = if (isActive) 24.dp else 8.dp,
+                                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(height = 8.dp, width = width)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (isActive) MaterialTheme.colorScheme.primary 
+                                            else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                        )
+                                )
+                            }
                         }
-                    } else {
-                        // Dummy spacer to keep Next button biased right
-                        Spacer(modifier = Modifier.width(48.dp))
+                        
+                        // Skip button
+                        IconButton(onClick = onDismiss) {
+                            Icon(
+                                Icons.Rounded.Close,
+                                contentDescription = viewModel.getString("skip"),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
 
-                    if (currentPage < totalPages - 1) {
-                        Button(
-                            onClick = { currentPage++ },
-                            shape = RoundedCornerShape(14.dp),
-                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp)
-                        ) {
-                            Text(viewModel.getString("next_step"), style = MaterialTheme.typography.labelLarge)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Icon(Icons.Default.ArrowForward, contentDescription = viewModel.getString("next_step"), modifier = Modifier.size(16.dp))
+                    // Page Animated Illustration Container - Larger and more prominent
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp)
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f)
+                                    )
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        when (currentPage) {
+                            0 -> DrawWelcomeIllustration()
+                            1 -> DrawArCameraIllustration()
+                            2 -> DrawRulerIllustration()
+                            3 -> DrawLevelIllustration()
+                            4 -> DrawSettingsIllustration(viewModel)
                         }
-                    } else {
-                        Button(
-                            onClick = onDismiss,
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                            contentPadding = PaddingValues(horizontal = 28.dp, vertical = 10.dp)
+                    }
+
+                    // Title & Instructions Content
+                    AnimatedContent(
+                        targetState = currentPage,
+                        transitionSpec = {
+                            if (targetState > initialState) {
+                                slideInHorizontally { it } + fadeIn() togetherWith slideOutHorizontally { -it } + fadeOut()
+                            } else {
+                                slideInHorizontally { -it } + fadeIn() togetherWith slideOutHorizontally { it } + fadeOut()
+                            }.using(SizeTransform(clip = false))
+                        },
+                        label = "pagerTransition"
+                    ) { page ->
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(Icons.Default.Check, contentDescription = viewModel.getString("get_started"), modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(viewModel.getString("get_started"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold)
+                            val titleText = when (page) {
+                                0 -> viewModel.getString("onboarding_title_1")
+                                1 -> viewModel.getString("onboarding_title_2")
+                                2 -> viewModel.getString("onboarding_title_3")
+                                3 -> viewModel.getString("onboarding_title_4")
+                                else -> viewModel.getString("onboarding_title_5")
+                            }
+
+                            val descText = when (page) {
+                                0 -> viewModel.getString("onboarding_desc_1")
+                                1 -> viewModel.getString("perm_camera_desc")
+                                2 -> viewModel.getString("onboarding_desc_3")
+                                3 -> viewModel.getString("onboarding_desc_4")
+                                else -> viewModel.getString("onboarding_desc_5")
+                            }
+
+                            Text(
+                                text = titleText,
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Black,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                textAlign = TextAlign.Center
+                            )
+                            
+                            Text(
+                                text = descText,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 24.sp,
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Footer Buttons (Prev / Next)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (currentPage > 0) {
+                            FilledTonalIconButton(
+                                onClick = { currentPage-- },
+                                modifier = Modifier.size(56.dp),
+                                shape = RoundedCornerShape(18.dp)
+                            ) {
+                                Icon(Icons.Rounded.ArrowBack, contentDescription = viewModel.getString("prev_step"))
+                            }
+                        }
+
+                        Button(
+                            onClick = { 
+                                if (currentPage < totalPages - 1) currentPage++ else onDismiss() 
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(56.dp),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = if (currentPage == totalPages - 1) 
+                                ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary) 
+                                else ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)
+                        ) {
+                            Text(
+                                text = if (currentPage == totalPages - 1) viewModel.getString("get_started") else viewModel.getString("next_step"),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (currentPage < totalPages - 1) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(Icons.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.size(20.dp))
+                            }
                         }
                     }
                 }

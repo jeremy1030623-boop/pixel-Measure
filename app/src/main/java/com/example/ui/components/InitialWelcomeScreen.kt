@@ -61,38 +61,55 @@ fun InitialWelcomeScreen(
             )
             .semantics { contentDescription = "智慧測量應用程式歡迎初始畫面" }
     ) {
-        // Absolute decorative top-right and bottom-left ambient color radial glow
+        // Enhanced Ambient Glows
+        val infiniteTransition = rememberInfiniteTransition(label = "BackgroundGlow")
+        val glowScale by infiniteTransition.animateFloat(
+            initialValue = 0.8f,
+            targetValue = 1.2f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(4000, easing = EaseInOutSine),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "GlowScale"
+        )
+
         Box(
             modifier = Modifier
-                .size(300.dp)
-                .align(Alignment.TopEnd)
-                .offset(x = 100.dp, y = (-100).dp)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            Color.Transparent
-                        )
-                    ),
-                    shape = CircleShape
-                )
-        )
-        
-        Box(
-            modifier = Modifier
-                .size(400.dp)
-                .align(Alignment.BottomStart)
-                .offset(x = (-150).dp, y = 150.dp)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.08f),
-                            Color.Transparent
-                        )
-                    ),
-                    shape = CircleShape
-                )
-        )
+                .fillMaxSize()
+                .graphicsLayer { alpha = 0.4f * glowScale }
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(400.dp)
+                    .align(Alignment.TopEnd)
+                    .offset(x = 120.dp, y = (-120).dp)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                Color.Transparent
+                            )
+                        ),
+                        shape = CircleShape
+                    )
+            )
+            
+            Box(
+                modifier = Modifier
+                    .size(500.dp)
+                    .align(Alignment.BottomStart)
+                    .offset(x = (-180).dp, y = 180.dp)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f),
+                                Color.Transparent
+                            )
+                        ),
+                        shape = CircleShape
+                    )
+            )
+        }
 
         // Main content column
         Column(
@@ -100,7 +117,7 @@ fun InitialWelcomeScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(24.dp),
+                .padding(horizontal = 30.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
@@ -109,54 +126,67 @@ fun InitialWelcomeScreen(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .weight(1f)
+                    .weight(1.3f)
                     .wrapContentHeight()
             ) {
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(48.dp))
                 
                 // Beautiful Animated Custom CAD Measurement Logo
                 Box(
                     modifier = Modifier
-                        .size(170.dp)
-                        .clip(RoundedCornerShape(32.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                        .size(190.dp)
+                        .clip(RoundedCornerShape(40.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f)
+                                )
+                            )
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     DrawMeasurementLaserLogo()
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
                 // App Titles
                 Text(
                     text = viewModel.getString("welcome_title_main"),
-                    style = MaterialTheme.typography.headlineLarge,
+                    style = MaterialTheme.typography.displaySmall,
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.onSurface,
-                    letterSpacing = 2.sp,
+                    letterSpacing = (-0.5).sp,
                     textAlign = TextAlign.Center
                 )
                 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 
-                Text(
-                    text = viewModel.getString("welcome_title_sub"),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                    letterSpacing = 0.5.sp,
-                    textAlign = TextAlign.Center
-                )
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(100.dp)
+                ) {
+                    Text(
+                        text = viewModel.getString("welcome_title_sub"),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                    )
+                }
             }
 
             // 2. Feature highlights / Quick Summary Cards
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 FeatureHighlightRow(
+                    index = 0,
                     icon = {
                         Icon(
                             androidx.compose.material.icons.Icons.Rounded.Camera,
@@ -170,6 +200,7 @@ fun InitialWelcomeScreen(
                 )
 
                 FeatureHighlightRow(
+                    index = 1,
                     icon = {
                         Icon(
                             androidx.compose.material.icons.Icons.Rounded.LinearScale,
@@ -183,6 +214,7 @@ fun InitialWelcomeScreen(
                 )
 
                 FeatureHighlightRow(
+                    index = 2,
                     icon = {
                         Icon(
                             androidx.compose.material.icons.Icons.Rounded.FilterCenterFocus,
@@ -307,56 +339,69 @@ fun InitialWelcomeScreen(
 
 @Composable
 fun FeatureHighlightRow(
+    index: Int,
     icon: @Composable () -> Unit,
     title: String,
     description: String
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.25f)
-        ),
-        shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
-        )
+    var isVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(400L + (index * 150L))
+        isVisible = true
+    }
+
+    AnimatedVisibility(
+        visible = isVisible,
+        enter = fadeIn(animationSpec = tween(600)) + slideInVertically(initialOffsetY = { it / 2 }, animationSpec = tween(600)),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.25f)
+            ),
+            shape = RoundedCornerShape(20.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+            )
         ) {
-            Box(
+            Row(
                 modifier = Modifier
-                    .size(42.dp)
-                    .background(
-                        MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp),
-                        RoundedCornerShape(12.dp)
-                    ),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                icon()
-            }
-            
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(3.dp))
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 16.sp
-                )
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(
+                            MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+                            RoundedCornerShape(14.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    icon()
+                }
+                
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp
+                    )
+                }
             }
         }
     }
